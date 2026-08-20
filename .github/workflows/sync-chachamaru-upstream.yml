@@ -1,0 +1,70 @@
+name: Sync Chachamaru upstream
+
+on:
+  schedule:
+    - cron: '37 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-chachamaru-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout fork main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Create a reviewable upstream-sync PR when needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/Chachamaru127/claude-code-harness.git 2>/dev/null || \
+            git remote set-url upstream https://github.com/Chachamaru127/claude-code-harness.git
+          git fetch --no-tags upstream main
+
+          upstream_sha="$(git rev-parse upstream/main)"
+          if git merge-base --is-ancestor "${upstream_sha}" HEAD; then
+            echo "Fork already contains upstream ${upstream_sha}."
+            exit 0
+          fi
+
+          branch="chore/sync-chachamaru-upstream-${upstream_sha:0:12}"
+          if gh pr list --repo "${GITHUB_REPOSITORY}" --base main --head "${branch}" --state all \
+            --json number --jq 'length > 0' | grep -qx 'true'; then
+            echo "A PR for upstream ${upstream_sha} already exists or was explicitly closed."
+            exit 0
+          fi
+
+          git checkout -b "${branch}"
+          git merge --no-ff --no-edit "${upstream_sha}"
+          git push --set-upstream origin "${branch}"
+
+          gh pr create --repo "${GITHUB_REPOSITORY}" --base main --head "${branch}" \
+            --title "chore: sync Chachamaru upstream (${upstream_sha:0:12})" \
+            --body "$(cat <<'EOF'
+          Automated upstream synchronization from `Chachamaru127/claude-code-harness`.
+
+          Required before merge:
+
+          - [ ] CI is green
+          - [ ] `$harness-review code --base origin/main --no-commit` approves the full PR diff
+          - [ ] Fork-specific behavior has been checked for regressions
+
+          SessionStart distributes only merged fork releases; it does not merge upstream changes.
+          EOF
+          )"
