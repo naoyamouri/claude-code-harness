@@ -167,4 +167,12 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 |------|------|-----|---------|--------|
 | 139.1 | `[lane:gate]` 本家 `main` を日次取得し、未取込時だけ同期用 branch と PR を作る GitHub Actions workflow を追加する。PR 本文に CI・`harness-review`・fork 固有確認の必須 gate を明記し、既存・クローズ済み PR は再作成しない。 | 同一HEAD時は no-op、差分時は `chore/sync-chachamaru-upstream-<sha>` から main 宛のPRを作成する。merge conflictは main を変更せず workflow を失敗として可視化する。workflow 静的契約テスト・`actionlint`・plugin validation が通る。 | - | cc:done [PR #3 / 2fb36f9] |
 
+## Phase 140: 同期PRのCI自走 (2026-08-20 起票)
+
+**Purpose**: `GITHUB_TOKEN` が作るPRの `pull_request` CIは承認待ちになる。追加secretを持たず、同期後に同一branchへ `workflow_dispatch` で primary CI を起動し、レビュー可能な実行記録を必ず残す。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 140.1 | `[lane:gate]` validate-plugin workflow に `workflow_dispatch` を許可し、同期workflowがPR作成後に対象branchのprimary CIを起動する。 | GITHUB_TOKENだけで同期PRのbranchに actionlint / validate / Go test が実行される。同期workflowは `actions: write` 以外の権限昇格を行わない。静的契約テスト・plugin validation・actionlintが通る。 | 139.1 | cc:wip |
+
 ---

@@ -14,6 +14,10 @@ Change history for claude-code-harness.
 
 - Chachamaru 本家の `main` を毎日検査し、fork 未取込時だけ reviewable な同期 PR を作る GitHub Actions workflow を追加。SessionStart は、CI と `$harness-review` を通して merge 済みの fork だけを従来どおり配布する
 
+### Fixed
+
+- 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` でprimary CIを対象branchへ起動するようにした
+
 ## [5.9.0] - 2026-08-17
 
 ### Added

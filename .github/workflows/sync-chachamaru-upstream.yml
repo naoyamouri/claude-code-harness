@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -68,3 +69,7 @@ jobs:
           SessionStart distributes only merged fork releases; it does not merge upstream changes.
           EOF
           )"
+
+          # A PR made with GITHUB_TOKEN has approval-required pull_request runs.
+          # workflow_dispatch is the supported no-secret path to run the same CI on its head.
+          gh workflow run validate-plugin.yml --repo "${GITHUB_REPOSITORY}" --ref "${branch}"
