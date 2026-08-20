@@ -71,5 +71,7 @@ jobs:
           )"
 
           # A PR made with GITHUB_TOKEN has approval-required pull_request runs.
-          # workflow_dispatch is the supported no-secret path to run the same CI on its head.
+          # workflow_dispatch is the supported no-secret path to run the full PR suite on its head.
           gh workflow run validate-plugin.yml --repo "${GITHUB_REPOSITORY}" --ref "${branch}"
+          gh workflow run smoke-install.yml --repo "${GITHUB_REPOSITORY}" --ref "${branch}"
+          gh workflow run codeql.yml --repo "${GITHUB_REPOSITORY}" --ref "${branch}"

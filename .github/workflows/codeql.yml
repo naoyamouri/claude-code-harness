@@ -5,6 +5,7 @@ name: codeql
 # caught even on quiet weeks.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
