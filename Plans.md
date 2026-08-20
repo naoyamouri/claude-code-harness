@@ -159,4 +159,12 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 **共有ファイル lane (Invariant 1)**: `tests/validate-plugin.sh` の owner は 134.8 / 135.5 (この順で直列)。`Plans.md` / `CHANGELOG.md` は worker 編集禁止 (Lead が統合時に編集)。hooks.json 2 ファイルの owner は 135.2 → 135.3 (直列)。`skills/harness-accept/` は 134.4 → 134.6 → 137.2 の順で直列。prose lane (skills/agents md) は 134.3 → 134.7 → 136.3 → 137.1 → 137.3 で直列可 (異なるファイルなら並列も可)。生成物 (binary / mirror) は統合後に trunk で 1 回再生成 (Invariant 3)。
 
+## Phase 139: Chachamaru upstream の reviewable 同期 (2026-08-20 起票)
+
+**Purpose**: fork の SessionStart 更新は `origin` だけを取得するため、Chachamaru 本家の変更を検知・レビュー可能な形で fork に取り込む。未検証の本家変更を自動マージせず、同期 PR と既存 CI / review gate を通す。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 139.1 | `[lane:gate]` 本家 `main` を日次取得し、未取込時だけ同期用 branch と PR を作る GitHub Actions workflow を追加する。PR 本文に CI・`harness-review`・fork 固有確認の必須 gate を明記し、既存・クローズ済み PR は再作成しない。 | 同一HEAD時は no-op、差分時は `chore/sync-chachamaru-upstream-<sha>` から main 宛のPRを作成する。merge conflictは main を変更せず workflow を失敗として可視化する。workflow 静的契約テスト・`actionlint`・plugin validation が通る。 | - | cc:wip |
+
 ---

@@ -531,6 +531,12 @@ else
     fail_test "Claude Code 2.1.80-2.1.86 の統合ポイントに欠落があります"
 fi
 
+if bash "$PLUGIN_ROOT/tests/test-upstream-sync-workflow.sh" >/dev/null 2>&1; then
+    pass_test "Chachamaru 本家の同期 PR workflow が配線されています"
+else
+    fail_test "Chachamaru 本家の同期 PR workflow に欠落があります"
+fi
+
 if bash "$PLUGIN_ROOT/tests/test-plans-status-markers.sh" >/dev/null 2>&1; then
     pass_test "Plans.md status marker protocol の互換性が保たれています"
 else
