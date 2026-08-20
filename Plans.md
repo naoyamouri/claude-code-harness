@@ -175,4 +175,12 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 |------|------|-----|---------|--------|
 | 140.1 | `[lane:gate]` validate-plugin workflow に `workflow_dispatch` を許可し、同期workflowがPR作成後に対象branchのprimary CIを起動する。 | GITHUB_TOKENだけで同期PRのbranchに actionlint / validate / Go test が実行される。同期workflowは `actions: write` 以外の権限昇格を行わない。静的契約テスト・plugin validation・actionlintが通る。 | 139.1 | cc:done [PR #4 / 23c54fb] |
 
+## Phase 141: 同期PRの全CI自走 (2026-08-20 起票)
+
+**Purpose**: primary CI だけでは smoke install と CodeQL が承認待ちのまま残る。同期PRが通常PRと同じ全CI証跡を持ち、手動承認なしでレビュー可能になるよう補完する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 141.1 | `[lane:gate]` smoke-install と CodeQL に `workflow_dispatch` を許可し、同期workflowが validate / smoke / CodeQL を同一branchへ起動する。 | GITHUB_TOKENだけで同期PRの全CI（actionlint・validate・Go test・3OS smoke・CodeQL）が起動する。workflow以外の権限は増やさず、3 workflowのdispatch許可と起動を契約テストで検査する。 | 140.1 | cc:wip |
+
 ---

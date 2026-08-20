@@ -16,7 +16,7 @@ Change history for claude-code-harness.
 
 ### Fixed
 
-- 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` でprimary CIを対象branchへ起動するようにした
+- 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` で全CIを対象branchへ起動するようにした
 
 ## [5.9.0] - 2026-08-17
 
