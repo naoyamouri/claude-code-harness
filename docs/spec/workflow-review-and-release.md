@@ -116,6 +116,19 @@ requires re-review. The merge command pins the reviewed head with `--repo` and
 on the live base branch. That GitHub-enforced setting rejects a merge when the
 base advances after the helper's final verification.
 
+Private repositories on GitHub Free cannot read that branch-protection endpoint:
+GitHub returns its documented 403 upgrade response. Only for that exact response,
+Harness instead rechecks the live PR base and head immediately before a
+`--match-head-commit` merge, then verifies the result on GitHub. This is a
+reduced guarantee, not an equivalent: a base update can still race the merge.
+`strict: false`, authentication failures, and other API failures remain
+fail-closed.
+
+The reviewer report is a user-facing Markdown artifact, stored separately from
+the derived `review-result.v1` JSON used by the merge receipt. The report leads
+with a verdict, required actions with their reasons and concrete actions, then
+non-blocking suggestions; it is never reconstructed from the JSON projection.
+
 Release belongs to `harness-release`, not PR closeout.
 
 Do not merge these stages:

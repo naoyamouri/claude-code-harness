@@ -49,6 +49,12 @@ required_skill_terms=(
   "accepted findings"
   "rejected findings"
   "stop-on-clean"
+  "必須対応"
+  "改善提案"
+  "理由:"
+  "対応:"
+  "--report FILE"
+  'emit only the `review-result.v1` JSON to stdout'
   "↑この結果は Claude が要約します"
 )
 
