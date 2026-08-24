@@ -51,8 +51,12 @@ exit 2
 EOF
 chmod +x "$BIN/gh"
 
+REVIEW_INPUT="$REPO/review-output.json"
 REVIEW_RESULT="$REPO/review-result.json"
-printf '{"verdict":"APPROVE","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"
+
+write_result() {
+  (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE")
+}
 
 run_gate() {
   PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" bash "$GATE" "$@"
@@ -69,7 +73,20 @@ for workflow_file in \
     || fail "workflow does not route PR merge through the gate: $workflow_file"
 done
 
+for workflow_file in \
+  "$ROOT_DIR/skills/harness-work/references/sprint-contract.md" \
+  "$ROOT_DIR/opencode/skills/harness-work/references/sprint-contract.md" \
+  "$ROOT_DIR/skills-codex/harness-work/SKILL.md" \
+  "$ROOT_DIR/codex/.codex/skills/harness-work/SKILL.md"; do
+  grep -Fq 'write-review-result.sh' "$workflow_file" \
+    || fail "workflow does not normalize the PR review result: $workflow_file"
+  grep -Fq -- '--base-ref "$BASE_REF"' "$workflow_file" \
+    || fail "workflow does not bind the PR review to its base: $workflow_file"
+done
+
 # PRなしではreceiptを発行しない。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
 set +e
 (cd "$REPO" && NO_PR=1 run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
 no_pr_rc=$?
@@ -77,7 +94,8 @@ set -e
 [ "$no_pr_rc" -ne 0 ] || fail "record must fail without a PR"
 
 # REQUEST_CHANGESはreceiptにできない。
-printf '{"verdict":"REQUEST_CHANGES","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"
+printf '{"verdict":"REQUEST_CHANGES"}\n' > "$REVIEW_INPUT"
+write_result
 set +e
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
 request_changes_rc=$?
@@ -85,7 +103,8 @@ set -e
 [ "$request_changes_rc" -ne 0 ] || fail "record must reject REQUEST_CHANGES"
 
 # APPROVEのcurrent HEADだけをrecordし、必要な値を残す。
-printf '{"verdict":"APPROVE","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 RECEIPT="$REPO/.git/harness/pr-review-receipts/42.json"
 [ -f "$RECEIPT" ] || fail "record must write a PR receipt"
@@ -99,6 +118,25 @@ jq -e --arg base "$BASE" --arg head "$HEAD_SHA" '
 
 (cd "$REPO" && run_gate verify --base "$BASE")
 
+# review-result.v1 でない手製のAPPROVEはreceiptにできない。
+printf '{"verdict":"APPROVE","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+handmade_rc=$?
+set -e
+[ "$handmade_rc" -ne 0 ] || fail "record must require a normalized review result"
+
+# review対象baseが違えば、同じHEADでもreceiptにできない。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
+jq '.base_ref = "wrong-base"' "$REVIEW_RESULT" > "$REVIEW_RESULT.tmp"
+mv "$REVIEW_RESULT.tmp" "$REVIEW_RESULT"
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+wrong_base_rc=$?
+set -e
+[ "$wrong_base_rc" -ne 0 ] || fail "record must require a review of the requested base"
+
 # receiptなしではmerge helperもfail closedにする。
 rm "$RECEIPT"
 set +e
@@ -109,6 +147,8 @@ set -e
 [ ! -s "$MERGE_LOG" ] || fail "missing receipt must not invoke gh pr merge"
 
 # record後はmerge helperが検証済みPRだけを実行できる。
+(printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT")
+write_result
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 (cd "$REPO" && run_gate merge --base "$BASE" --dry-run) | grep -Fq 'gh pr merge 42 --squash' \
   || fail "dry-run must show the guarded merge command"

@@ -84,10 +84,18 @@ receipt_path() {
 record() {
   [ -f "$REVIEW_RESULT" ] || die "review result not found: $REVIEW_RESULT"
 
-  local verdict reviewed_head pr receipt receipt_dir temp
+  local schema_version verdict reviewed_base reviewed_head pr receipt receipt_dir temp
+  schema_version="$(jq -er '.schema_version' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no schema_version"
+  [ "$schema_version" = "review-result.v1" ] \
+    || die "review result must use review-result.v1 (got: $schema_version)"
   verdict="$(jq -er '.verdict' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no verdict"
   [ "$verdict" = "APPROVE" ] || die "review verdict must be APPROVE (got: $verdict)"
+  reviewed_base="$(jq -er '.base_ref' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no base_ref"
+  [ "$reviewed_base" = "$BASE_SHA" ] \
+    || die "review result is for $reviewed_base, but requested base is $BASE_SHA"
   reviewed_head="$(jq -er '.commit_hash' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no commit_hash"
   [ "$reviewed_head" = "$HEAD_SHA" ] \

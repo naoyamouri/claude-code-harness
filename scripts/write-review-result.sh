@@ -10,6 +10,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 BROWSER_RESULT_FILE=""
+BASE_REF=""
 POSITIONAL=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -23,6 +24,18 @@ while [ $# -gt 0 ]; do
       ;;
     --browser-result=*)
       BROWSER_RESULT_FILE="${1#*=}"
+      shift
+      ;;
+    --base-ref)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        echo "Usage: scripts/write-review-result.sh <input-json-file> [commit-hash] [output-file] [--base-ref <commit>] [--browser-result <browser-json-file>]" >&2
+        exit 1
+      fi
+      BASE_REF="$2"
+      shift 2
+      ;;
+    --base-ref=*)
+      BASE_REF="${1#*=}"
       shift
       ;;
     --)
@@ -49,7 +62,7 @@ OUTPUT_FILE="${POSITIONAL[2]:-.claude/state/review-result.json}"
 LEGACY_FILE=".claude/state/review-approved.json"
 
 if [ -z "$INPUT_FILE" ]; then
-  echo "Usage: scripts/write-review-result.sh <input-json-file> [commit-hash] [output-file] [--browser-result <browser-json-file>]" >&2
+  echo "Usage: scripts/write-review-result.sh <input-json-file> [commit-hash] [output-file] [--base-ref <commit>] [--browser-result <browser-json-file>]" >&2
   exit 1
 fi
 
@@ -75,7 +88,7 @@ else
 ' > "$BROWSER_SLURP_FILE"
 fi
 
-jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE"   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   --arg commit_hash "$COMMIT_HASH" '
+jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE"   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   --arg commit_hash "$COMMIT_HASH"   --arg base_ref "$BASE_REF" '
   def as_array(v):
     if v == null then []
     elif (v | type) == "array" then v
@@ -139,6 +152,7 @@ jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE
       task: ($in.task // $browser_in.task // null),
       type: ($in.type // $in.review_type // $browser_in.type // $browser_in.review_type // null),
       commit_hash: (if $commit_hash == "" then ($in.commit_hash // null) else $commit_hash end),
+      base_ref: (if $base_ref == "" then ($in.base_ref // $in.review_base_ref // null) else $base_ref end),
       execution: (
         if (($in.route // null) != null) or (($in.mode // null) != null) or (($in.browser_mode // null) != null) or (($in.tool_matcher // null) != null) or (($in.required_artifacts // null) != null) or (($in.execution_instructions // null) != null) or (($browser_in.route // null) != null) or (($browser_in.mode // null) != null) or (($browser_in.browser_mode // null) != null) or (($browser_in.tool_matcher // null) != null) or (($browser_in.required_artifacts // null) != null) or (($browser_in.execution_instructions // null) != null) then
           {

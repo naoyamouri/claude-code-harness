@@ -809,13 +809,20 @@ Breezing モードでは **Lead** がレビューループを実行する（上�
 ```bash
 git fetch origin main
 BASE_REF="$(git merge-base origin/main HEAD)"
-# review の APPROVE 出力を review-result.v1 に正規化して保存してから:
-bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$BASE_REF"
+# review の構造化JSONを .claude/state/pr-review-output.json に保存して正規化する:
+PR_REVIEW_GATE="${HARNESS_PLUGIN_ROOT:-}/scripts/harness-pr-review-gate.sh"
+if [ ! -x "$PR_REVIEW_GATE" ]; then PR_REVIEW_GATE="${CODEX_HOME:-$HOME/.codex}/bin/harness-pr-review-gate.sh"; fi
+WRITE_REVIEW_RESULT="${HARNESS_PLUGIN_ROOT:-}/scripts/write-review-result.sh"
+if [ ! -x "$WRITE_REVIEW_RESULT" ]; then WRITE_REVIEW_RESULT="${CODEX_HOME:-$HOME/.codex}/bin/write-review-result.sh"; fi
+bash "$WRITE_REVIEW_RESULT" \
+  .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
+  .claude/state/review-result.json --base-ref "$BASE_REF"
+bash "$PR_REVIEW_GATE" record --base "$BASE_REF"
 # agent による merge は raw gh pr merge を使わない:
-bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
+bash "$PR_REVIEW_GATE" merge --base "$BASE_REF"
 ```
 
-`record` は current PR、base、HEAD、`APPROVE` を照合する。`REQUEST_CHANGES`、receipt 不在、または review 後の追加 commit では merge を止め、修正後に PR 全体を再レビューする。GitHub Web UI の人手 merge は対象外。
+`record` は current PR、review対象base、HEAD、`APPROVE` を照合する。`REQUEST_CHANGES`、receipt 不在、または review 後の追加 commit では merge を止め、修正後に PR 全体を再レビューする。GitHub Web UI の人手 merge は対象外。
 
 ## Completion Report Output Contract
 

@@ -63,6 +63,12 @@ run_setup "$HOME_ONE"
 
 assert_symlink "$CODEX_ONE/skills/breezing"
 assert_file "$SOURCE_SKILL_FILE"
+assert_file "$CODEX_ONE/bin/harness-pr-review-gate.sh"
+assert_file "$CODEX_ONE/bin/write-review-result.sh"
+if [ ! -x "$CODEX_ONE/bin/harness-pr-review-gate.sh" ]; then
+  echo "expected executable PR review gate" >&2
+  exit 1
+fi
 
 # Case 2: the user skill is a symlink to some other local directory.
 # Setup should back up the symlink itself, replace it with a real copied skill

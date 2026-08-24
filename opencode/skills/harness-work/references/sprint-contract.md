@@ -61,12 +61,15 @@ A lane の PR では、`gh pr create` の直後に PR 全体をレビューす�
 ```bash
 git fetch origin main
 BASE_REF="$(git merge-base origin/main HEAD)"
-# harness-review code --base "$BASE_REF" --no-commit を実行し、APPROVE の review-result.v1 を保存した後:
+# harness-review code --base "$BASE_REF" --no-commit を実行し、その構造化JSONを .claude/state/pr-review-output.json に保存する。
+bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh" \
+  .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
+  .claude/state/review-result.json --base-ref "$BASE_REF"
 bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$BASE_REF"
 # merge は raw gh pr merge ではなく、この helper だけを使う:
 bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
 ```
 
-`record` は current PR、base、HEAD、`review-result.v1` の `APPROVE` を照合して receipt を Git common dir に保存する。PR がない、`REQUEST_CHANGES`、または review 後に HEAD が変わった場合は fail closed。GitHub Web UI の人手 merge はこの agent gate の対象外であり、必要なら branch protection を別途設定する。
+`record` は current PR、base、HEAD、`review-result.v1` の `APPROVE` を照合して receipt を Git common dir に保存する。PR がない、`REQUEST_CHANGES`、review対象baseの不一致、または review 後に HEAD が変わった場合は fail closed。GitHub Web UI の人手 merge はこの agent gate の対象外であり、必要なら branch protection を別途設定する。
 
 **Fast lane の軽量化境界**: `lane: fast` は full review を省略できるが、`not_observed != absent` の unknown data contract と focused checks（`runtime_validation` / `checks` の DoD 分解）は省かない。

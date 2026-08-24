@@ -48,6 +48,10 @@ commit / push / release は既定では行わない。
 | `/harness-review --security` | `security` | security 専用 review |
 | `/harness-review plan` | `plan` | `Plans.md` の計画 review |
 | `/harness-review scope` | `scope` | scope creep / 漏れ review |
+
+### Fixed PR range
+
+`harness-work` から `code --base REF --no-commit` で呼ばれた場合は、`REF..HEAD` を固定の review target とする。reviewer は通常の構造化 `review-result.v1` JSON を返すだけで、ファイル保存・commit・push・merge は行わない。呼び出し元の `harness-work` がその JSON を保存して正規化し、PR receipt を記録する。
 ## Mode Decision
 
 引数から実行 mode を決定し、必要な `references/` を選択ロードする。
