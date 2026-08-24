@@ -109,4 +109,23 @@ if [ "$backup_count" -lt 2 ]; then
   exit 1
 fi
 
+# Case 4: merge multi_agent into an existing features table instead of
+# appending a duplicate TOML table.
+HOME_FOUR="$TMP_ROOT/home-existing-features"
+CODEX_FOUR="$HOME_FOUR/.codex"
+mkdir -p "$CODEX_FOUR"
+printf '[features]\njs_repl = false\n' > "$CODEX_FOUR/config.toml"
+
+run_setup "$HOME_FOUR"
+
+feature_table_count="$(grep -c '^\[features\]$' "$CODEX_FOUR/config.toml")"
+if [ "$feature_table_count" -ne 1 ]; then
+  echo "expected one features table, found $feature_table_count" >&2
+  exit 1
+fi
+if ! grep -q '^[[:space:]]*multi_agent[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$CODEX_FOUR/config.toml"; then
+  echo "expected features.multi_agent = true" >&2
+  exit 1
+fi
+
 echo "OK"

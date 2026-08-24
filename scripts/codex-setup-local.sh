@@ -471,11 +471,26 @@ CFG
   fi
 
   if ! grep -q '^[[:space:]]*multi_agent[[:space:]]*=' "$cfg"; then
-    cat >> "$cfg" <<'CFG'
+    if grep -q '^[[:space:]]*\[features\][[:space:]]*$' "$cfg"; then
+      local tmp_cfg
+      tmp_cfg="$(mktemp "${cfg}.tmp.XXXXXX")"
+      awk '
+        !added && /^[[:space:]]*\[features\][[:space:]]*$/ {
+          print
+          print "multi_agent = true"
+          added = 1
+          next
+        }
+        { print }
+      ' "$cfg" > "$tmp_cfg"
+      mv "$tmp_cfg" "$cfg"
+    else
+      cat >> "$cfg" <<'CFG'
 
 [features]
 multi_agent = true
 CFG
+    fi
     echo "Enabled features.multi_agent in $cfg"
   fi
 
