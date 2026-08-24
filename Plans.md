@@ -183,4 +183,12 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 |------|------|-----|---------|--------|
 | 141.1 | `[lane:gate]` smoke-install と CodeQL に `workflow_dispatch` を許可し、同期workflowが validate / smoke / CodeQL を同一branchへ起動する。 | GITHUB_TOKENだけで同期PRの全CI（actionlint・validate・Go test・3OS smoke・CodeQL）が起動する。workflow以外の権限は増やさず、3 workflowのdispatch許可と起動を契約テストで検査する。 | 140.1 | cc:done [PR #5 / 9d80774c] |
 
+## Phase 142: Cross-agent PR review gate (2026-08-24)
+
+**Purpose**: Claude Code と Codex のPR後レビューを同じ receipt/merge guard に接続し、origin の live PR head と一致しない未レビュー変更を agent merge しない。Spec delta: `docs/spec/workflow-review-and-release.md` の PR boundary。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 142.1 | `[lane:gate] [tdd:required]` PR review receipt と merge helper を実装し、Claude/Codex adapter と mirror に配る。 | RED: remote PR head不一致で既存gateが通る。GREEN: receipt = local HEAD = live `headRefOid`、originを明示した `--match-head-commit` merge、PRなし/request changes/stale local・remote headのfixture、plugin validationが通る。 | - | cc:WIP |
+
 ---

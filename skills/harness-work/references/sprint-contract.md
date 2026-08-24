@@ -70,6 +70,6 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$
 bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
 ```
 
-`record` は current PR、base、HEAD、`review-result.v1` の `APPROVE` を照合して receipt を Git common dir に保存する。PR がない、`REQUEST_CHANGES`、review対象baseの不一致、または review 後に HEAD が変わった場合は fail closed。GitHub Web UI の人手 merge はこの agent gate の対象外であり、必要なら branch protection を別途設定する。
+`record` は origin の current PR、base、local HEAD と live PR head、`review-result.v1` の `APPROVE` を照合して receipt を Git common dir に保存する。`merge` は同じ origin と receipt head を `--match-head-commit` で固定する。PR がない、`REQUEST_CHANGES`、base/head不一致、または review 後の local/remote push は fail closed。GitHub Web UI の人手 merge はこの agent gate の対象外であり、必要なら branch protection を別途設定する。
 
 **Fast lane の軽量化境界**: `lane: fast` は full review を省略できるが、`not_observed != absent` の unknown data contract と focused checks（`runtime_validation` / `checks` の DoD 分解）は省かない。

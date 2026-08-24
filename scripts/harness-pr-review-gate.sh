@@ -63,6 +63,9 @@ done
 BASE_SHA="$(git rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)" \
   || die "invalid base ref: $BASE_REF"
 HEAD_SHA="$(git rev-parse --verify HEAD)" || die "HEAD is unavailable"
+PR_REPO=""
+PR_NUMBER=""
+PR_HEAD=""
 
 origin_repo() {
   local url
@@ -84,20 +87,19 @@ origin_repo() {
   printf '%s\n' "${url%.git}"
 }
 
-pr_number() {
-  local branch origin pr_json
+load_pr_context() {
+  local branch pr_json
   branch="$(git branch --show-current)"
   [ -n "$branch" ] || die "current branch is unavailable"
-  origin="$(origin_repo || true)"
-  if [ -n "$origin" ]; then
-    pr_json="$(gh pr view "$branch" --repo "$origin" --json number 2>/dev/null)" || true
-  fi
-  if [ -z "${pr_json:-}" ]; then
-    pr_json="$(gh pr view "$branch" --json number 2>/dev/null)" \
-      || die "no PR found for the current branch"
-  fi
-  jq -er '.number | tonumber' <<<"$pr_json" \
+  PR_REPO="$(origin_repo)" || die "origin must be a GitHub repository"
+  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid 2>/dev/null)" \
+    || die "no PR found for the current origin branch"
+  PR_NUMBER="$(jq -er '.number | tonumber' <<<"$pr_json")" \
     || die "could not read PR number"
+  PR_HEAD="$(jq -er '.headRefOid' <<<"$pr_json")" \
+    || die "could not read PR head"
+  [ "$PR_HEAD" = "$HEAD_SHA" ] \
+    || die "live PR head is $PR_HEAD, but local HEAD is $HEAD_SHA"
 }
 
 receipt_path() {
@@ -112,7 +114,7 @@ receipt_path() {
 record() {
   [ -f "$REVIEW_RESULT" ] || die "review result not found: $REVIEW_RESULT"
 
-  local schema_version verdict reviewed_base reviewed_head pr receipt receipt_dir temp
+  local schema_version verdict reviewed_base reviewed_head receipt receipt_dir temp
   schema_version="$(jq -er '.schema_version' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no schema_version"
   [ "$schema_version" = "review-result.v1" ] \
@@ -129,14 +131,14 @@ record() {
   [ "$reviewed_head" = "$HEAD_SHA" ] \
     || die "review result is for $reviewed_head, but HEAD is $HEAD_SHA"
 
-  pr="$(pr_number)"
-  receipt="$(receipt_path "$pr")"
+  load_pr_context
+  receipt="$(receipt_path "$PR_NUMBER")"
   receipt_dir="$(dirname "$receipt")"
   mkdir -p "$receipt_dir"
   temp="${receipt}.tmp.$$"
   jq -n \
     --arg schema_version "pr-review-receipt.v1" \
-    --argjson pr_number "$pr" \
+    --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
     --arg head "$HEAD_SHA" \
     --arg verdict "$verdict" \
@@ -144,18 +146,18 @@ record() {
     '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
     > "$temp"
   mv "$temp" "$receipt"
-  echo "Recorded APPROVE receipt for PR #$pr"
+  echo "Recorded APPROVE receipt for PR #$PR_NUMBER"
 }
 
 verify() {
-  local pr receipt
-  pr="$(pr_number)"
-  receipt="$(receipt_path "$pr")"
-  [ -f "$receipt" ] || die "no APPROVE receipt for PR #$pr"
+  local receipt
+  load_pr_context
+  receipt="$(receipt_path "$PR_NUMBER")"
+  [ -f "$receipt" ] || die "no APPROVE receipt for PR #$PR_NUMBER"
   jq -e \
-    --argjson pr_number "$pr" \
+    --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
-    --arg head "$HEAD_SHA" \
+    --arg head "$PR_HEAD" \
     '.schema_version == "pr-review-receipt.v1"
       and .pr_number == $pr_number
       and .base_ref == $base_ref
@@ -163,8 +165,7 @@ verify() {
       and .verdict == "APPROVE"
       and (.reviewed_at | type == "string")' \
     "$receipt" >/dev/null \
-    || die "receipt does not match current PR, base, or HEAD"
-  echo "$pr"
+    || die "receipt does not match current PR, base, or live HEAD"
 }
 
 case "$ACTION" in
@@ -178,11 +179,11 @@ case "$ACTION" in
     echo "PR review receipt is valid"
     ;;
   merge)
-    pr="$(verify)"
+    verify
     if [ "$DRY_RUN" -eq 1 ]; then
-      echo "gh pr merge $pr --squash"
+      echo "gh pr merge $PR_NUMBER --repo $PR_REPO --squash --match-head-commit $HEAD_SHA"
     else
-      gh pr merge "$pr" --squash
+      gh pr merge "$PR_NUMBER" --repo "$PR_REPO" --squash --match-head-commit "$HEAD_SHA"
     fi
     ;;
   *)

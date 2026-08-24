@@ -106,6 +106,11 @@ acceptance bar is met.
 
 PR closeout belongs to `harness-work`, not `harness-review`.
 
+An agent merge resolves the current PR through `origin`, and must fail closed
+unless the review receipt head equals both local `HEAD` and GitHub's live PR
+head. The merge command pins that reviewed SHA with `--repo` and
+`--match-head-commit`; a local or remote push therefore requires re-review.
+
 Release belongs to `harness-release`, not PR closeout.
 
 Do not merge these stages:

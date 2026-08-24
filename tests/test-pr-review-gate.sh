@@ -34,6 +34,7 @@ git -C "$REPO" checkout -qb feature/pr-review
 printf 'change\n' >> "$REPO/file.txt"
 git -C "$REPO" commit -qam change
 HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
+PR_HEAD_SHA="$HEAD_SHA"
 
 cat > "$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -43,10 +44,13 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
     exit 1
   fi
-  printf '{"number":42}\n'
+  printf '{"number":42,"headRefOid":"%s"}\n' "$PR_HEAD_SHA"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
+    exit 1
+  fi
   printf '%s\n' "$*" >> "$MERGE_LOG"
   exit 0
 fi
@@ -63,7 +67,7 @@ write_result() {
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
@@ -122,7 +126,7 @@ jq -e --arg base "$BASE" --arg head "$HEAD_SHA" '
 
 (cd "$REPO" && run_gate verify --base "$BASE")
 
-# upstream remote が gh の既定になっていても、origin のPRを検出する。
+# upstream remote が gh の既定になっていても、origin のPRだけを操作する。
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate verify --base "$BASE")
 
 # review-result.v1 でない手製のAPPROVEはreceiptにできない。
@@ -157,10 +161,25 @@ set -e
 (printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT")
 write_result
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) | grep -Fq 'gh pr merge 42 --squash' \
-  || fail "dry-run must show the guarded merge command"
-(cd "$REPO" && run_gate merge --base "$BASE")
-grep -Fq 'pr merge 42 --squash' "$MERGE_LOG" || fail "guarded merge must call gh pr merge --squash"
+
+# 別sessionのremote pushでは、local HEADが古くてもreceiptを無効にする。
+PR_HEAD_SHA="unreviewed-remote-head"
+: > "$MERGE_LOG"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+remote_head_rc=$?
+set -e
+[ "$remote_head_rc" -ne 0 ] || fail "merge must reject an unreviewed remote PR head"
+[ ! -s "$MERGE_LOG" ] || fail "remote head mismatch must not invoke gh pr merge"
+PR_HEAD_SHA="$HEAD_SHA"
+
+# mergeはoriginのapproved headに固定する。
+dry_run="$(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE" --dry-run)"
+expected_merge="gh pr merge 42 --repo test-owner/test-repo --squash --match-head-commit $HEAD_SHA"
+[[ "$dry_run" == *"$expected_merge"* ]] || fail "dry-run must show the guarded merge command"
+(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE")
+grep -Fq -- "--repo test-owner/test-repo" "$MERGE_LOG" || fail "guarded merge must target origin"
+grep -Fq -- "--match-head-commit $HEAD_SHA" "$MERGE_LOG" || fail "guarded merge must pin the approved head"
 
 # pushでHEADが変われば以前のreceiptは無効。
 printf 'next\n' >> "$REPO/file.txt"
