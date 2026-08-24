@@ -231,8 +231,8 @@ jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE
         + (as_array($browser_in.critical_issues) | map(normalize_gap(.; "critical")))
         + (as_array($in.major_issues) | map(normalize_gap(.; "major")))
         + (as_array($browser_in.major_issues) | map(normalize_gap(.; "major")))
-        + (as_array($in.observations) | map(select((.severity // "minor") | IN("critical","major"))))
-        + (as_array($browser_in.observations) | map(select((.severity // "minor") | IN("critical","major"))))
+        + (as_array($in.observations) | map(normalize_gap(.; "minor")) | map(select(.severity | IN("critical","major"))))
+        + (as_array($browser_in.observations) | map(normalize_gap(.; "minor")) | map(select(.severity | IN("critical","major"))))
         + findings_to_gaps($in)
         + findings_to_gaps($browser_in)
       ),
@@ -241,8 +241,8 @@ jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE
         + as_array($browser_in.followups)
         + as_array($in.recommendations)
         + as_array($browser_in.recommendations)
-        + (as_array($in.observations) | map(select((.severity // "minor") | IN("minor","recommendation"))))
-        + (as_array($browser_in.observations) | map(select((.severity // "minor") | IN("minor","recommendation"))))
+        + (as_array($in.observations) | map(normalize_gap(.; "minor")) | map(select(.severity | IN("minor","recommendation"))))
+        + (as_array($browser_in.observations) | map(normalize_gap(.; "minor")) | map(select(.severity | IN("minor","recommendation"))))
         + findings_to_followups($in)
         + findings_to_followups($browser_in)
       ),

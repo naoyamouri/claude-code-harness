@@ -17,6 +17,10 @@ cat > "${TMP_DIR}/input.json" <<'EOF'
   },
   "critical_issues": [],
   "major_issues": [],
+  "observations": [
+    "review-weak-supervision-report.sh is not configured",
+    {"severity": "recommendation", "issue": "keep result metadata", "file": "review.json"}
+  ],
   "recommendations": ["keep watching browser flow"]
 }
 EOF
@@ -32,7 +36,9 @@ jq -e '
   .base_ref == "base5678" and
   .pr_base == "prbase890" and
   .pr_base_ref == "release/v2" and
-  (.followups | length) == 1
+  (.followups | length) == 3 and
+  ([.followups[] | select(type == "object" and .issue == "review-weak-supervision-report.sh is not configured" and .severity == "minor")] | length) == 1 and
+  ([.followups[] | select(type == "object" and .issue == "keep result metadata" and .severity == "recommendation" and .file == "review.json")] | length) == 1
 ' "${TMP_DIR}/review-result.json" >/dev/null
 
 jq -e '
@@ -65,7 +71,8 @@ cat > "${TMP_DIR}/browser-result.json" <<'EOF'
 {
   "browser_verdict": "APPROVE",
   "runner_status": "ok",
-  "note": "browser review command completed"
+  "note": "browser review command completed",
+  "observations": ["browser snapshot was not captured"]
 }
 EOF
 
@@ -80,7 +87,8 @@ jq -e '
   .execution.browser_mode == "exploratory" and
   (.execution.required_artifacts | length) == 2 and
   (.execution.instructions | length) == 2 and
-  (.checks | length) == 1
+  (.checks | length) == 1 and
+  ([.followups[] | select(type == "object" and .issue == "browser snapshot was not captured" and .severity == "minor")] | length) == 1
 ' "${TMP_DIR}/browser-review-result.json" >/dev/null
 
 cat > "${TMP_DIR}/browser-request-input.json" <<'EOF'
