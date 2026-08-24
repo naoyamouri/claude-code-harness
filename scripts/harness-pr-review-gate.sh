@@ -6,6 +6,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
+  scripts/harness-pr-review-gate.sh context
   scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE]
   scripts/harness-pr-review-gate.sh verify --base REF
   scripts/harness-pr-review-gate.sh merge --base REF [--dry-run]
@@ -59,14 +60,18 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$BASE_REF" ] || die "--base REF is required"
-BASE_SHA="$(git rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)" \
-  || die "invalid base ref: $BASE_REF"
 HEAD_SHA="$(git rev-parse --verify HEAD)" || die "HEAD is unavailable"
+BASE_SHA=""
+if [ "$ACTION" != "context" ]; then
+  [ -n "$BASE_REF" ] || die "--base REF is required"
+  BASE_SHA="$(git rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)" \
+    || die "invalid base ref: $BASE_REF"
+fi
 PR_REPO=""
 PR_NUMBER=""
 PR_HEAD=""
 PR_BASE=""
+PR_BASE_REF=""
 
 origin_repo() {
   local url
@@ -93,7 +98,7 @@ load_pr_context() {
   branch="$(git branch --show-current)"
   [ -n "$branch" ] || die "current branch is unavailable"
   PR_REPO="$(origin_repo)" || die "origin must be a GitHub repository"
-  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid,baseRefOid 2>/dev/null)" \
+  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid,baseRefOid,baseRefName 2>/dev/null)" \
     || die "no PR found for the current origin branch"
   PR_NUMBER="$(jq -er '.number | tonumber' <<<"$pr_json")" \
     || die "could not read PR number"
@@ -101,6 +106,8 @@ load_pr_context() {
     || die "could not read PR head"
   PR_BASE="$(jq -er '.baseRefOid' <<<"$pr_json")" \
     || die "could not read PR base"
+  PR_BASE_REF="$(jq -er '.baseRefName' <<<"$pr_json")" \
+    || die "could not read PR base name"
   [ "$PR_HEAD" = "$HEAD_SHA" ] \
     || die "live PR head is $PR_HEAD, but local HEAD is $HEAD_SHA"
 }
@@ -117,7 +124,7 @@ receipt_path() {
 record() {
   [ -f "$REVIEW_RESULT" ] || die "review result not found: $REVIEW_RESULT"
 
-  local schema_version verdict reviewed_base reviewed_head receipt receipt_dir temp
+  local schema_version verdict reviewed_base reviewed_head reviewed_pr_base reviewed_pr_base_ref receipt receipt_dir temp
   schema_version="$(jq -er '.schema_version' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no schema_version"
   [ "$schema_version" = "review-result.v1" ] \
@@ -133,8 +140,16 @@ record() {
     || die "review result has no commit_hash"
   [ "$reviewed_head" = "$HEAD_SHA" ] \
     || die "review result is for $reviewed_head, but HEAD is $HEAD_SHA"
+  reviewed_pr_base="$(jq -er '.pr_base' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no pr_base"
+  reviewed_pr_base_ref="$(jq -er '.pr_base_ref' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no pr_base_ref"
 
   load_pr_context
+  [ "$reviewed_pr_base" = "$PR_BASE" ] \
+    || die "review result is for PR base $reviewed_pr_base, but live PR base is $PR_BASE"
+  [ "$reviewed_pr_base_ref" = "$PR_BASE_REF" ] \
+    || die "review result is for PR base branch $reviewed_pr_base_ref, but live PR base branch is $PR_BASE_REF"
   receipt="$(receipt_path "$PR_NUMBER")"
   receipt_dir="$(dirname "$receipt")"
   mkdir -p "$receipt_dir"
@@ -144,10 +159,11 @@ record() {
     --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
     --arg pr_base "$PR_BASE" \
+    --arg pr_base_ref "$PR_BASE_REF" \
     --arg head "$HEAD_SHA" \
     --arg verdict "$verdict" \
     --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, pr_base: $pr_base, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
+    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, pr_base: $pr_base, pr_base_ref: $pr_base_ref, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
     > "$temp"
   mv "$temp" "$receipt"
   echo "Recorded APPROVE receipt for PR #$PR_NUMBER"
@@ -162,11 +178,13 @@ verify() {
     --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
     --arg pr_base "$PR_BASE" \
+    --arg pr_base_ref "$PR_BASE_REF" \
     --arg head "$PR_HEAD" \
     '.schema_version == "pr-review-receipt.v1"
       and .pr_number == $pr_number
       and .base_ref == $base_ref
       and .pr_base == $pr_base
+      and .pr_base_ref == $pr_base_ref
       and .head == $head
       and .verdict == "APPROVE"
       and (.reviewed_at | type == "string")' \
@@ -174,7 +192,29 @@ verify() {
     || die "receipt does not match current PR, base, or live HEAD"
 }
 
+require_strict_base_protection() {
+  local encoded_base_ref protection strict
+  encoded_base_ref="$(jq -rn --arg value "$PR_BASE_REF" '$value | @uri')" \
+    || die "could not encode PR base branch"
+  protection="$(gh api "repos/$PR_REPO/branches/$encoded_base_ref/protection/required_status_checks" 2>/dev/null)" \
+    || die "agent merge requires required status checks with 'Require branches to be up to date before merging' on $PR_BASE_REF"
+  strict="$(jq -er '.strict' <<<"$protection" 2>/dev/null)" \
+    || die "could not read base branch protection for $PR_BASE_REF"
+  [ "$strict" = "true" ] \
+    || die "agent merge requires 'Require branches to be up to date before merging' on $PR_BASE_REF"
+}
+
 case "$ACTION" in
+  context)
+    [ "$DRY_RUN" -eq 0 ] || die "--dry-run is only valid with merge"
+    load_pr_context
+    jq -n \
+      --argjson pr_number "$PR_NUMBER" \
+      --arg head "$PR_HEAD" \
+      --arg base_ref "$PR_BASE_REF" \
+      --arg base_oid "$PR_BASE" \
+      '{pr_number: $pr_number, head: $head, base_ref: $base_ref, base_oid: $base_oid}'
+    ;;
   record)
     [ "$DRY_RUN" -eq 0 ] || die "--dry-run is only valid with merge"
     record
@@ -186,6 +226,7 @@ case "$ACTION" in
     ;;
   merge)
     verify
+    require_strict_base_protection
     if [ "$DRY_RUN" -eq 1 ]; then
       echo "gh pr merge $PR_NUMBER --repo $PR_REPO --squash --match-head-commit $HEAD_SHA"
     else

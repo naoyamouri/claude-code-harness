@@ -36,6 +36,7 @@ git -C "$REPO" commit -qam change
 HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
 PR_HEAD_SHA="$HEAD_SHA"
 PR_BASE_SHA="$BASE"
+PR_BASE_REF="main"
 
 cat > "$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -45,7 +46,18 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
     exit 1
   fi
-  printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA"
+  printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$MOCK_PR_BASE_REF"
+  exit 0
+fi
+if [ "$1" = "api" ]; then
+  expected_endpoint="repos/test-owner/test-repo/branches/$MOCK_PR_BASE_REF/protection/required_status_checks"
+  [[ "$*" == *"$expected_endpoint"* ]] || exit 1
+  [ "${PR_BASE_PROTECTION_AVAILABLE:-true}" = "true" ] || exit 1
+  if [ "${PR_BASE_PROTECTION_STRICT:-true}" = "true" ]; then
+    printf '{"strict":true}\n'
+  else
+    printf '{"strict":false}\n'
+  fi
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
@@ -64,14 +76,22 @@ REVIEW_INPUT="$REPO/review-output.json"
 REVIEW_RESULT="$REPO/review-result.json"
 
 write_result() {
-  (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE")
+  (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE" --pr-base "$PR_BASE_SHA" --pr-base-ref "$PR_BASE_REF")
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
+
+context="$(cd "$REPO" && run_gate context)"
+jq -e --argjson pr_number 42 --arg head "$HEAD_SHA" --arg base_ref "$PR_BASE_REF" --arg base_oid "$PR_BASE_SHA" '
+  .pr_number == $pr_number
+  and .head == $head
+  and .base_ref == $base_ref
+  and .base_oid == $base_oid
+' <<<"$context" >/dev/null || fail "context must expose the current origin PR base"
 
 for workflow_file in \
   "$ROOT_DIR/skills/harness-work/references/sprint-contract.md" \
@@ -91,6 +111,10 @@ for workflow_file in \
     || fail "workflow does not normalize the PR review result: $workflow_file"
   grep -Fq -- '--base-ref "$BASE_REF"' "$workflow_file" \
     || fail "workflow does not bind the PR review to its base: $workflow_file"
+  grep -Fq 'PR_CONTEXT=' "$workflow_file" \
+    || fail "workflow does not resolve the live PR base: $workflow_file"
+  grep -Fq -- '--pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"' "$workflow_file" \
+    || fail "workflow does not record the live PR base in its review artifact: $workflow_file"
 done
 
 # PRなしではreceiptを発行しない。
@@ -117,10 +141,11 @@ write_result
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 RECEIPT="$REPO/.git/harness/pr-review-receipts/42.json"
 [ -f "$RECEIPT" ] || fail "record must write a PR receipt"
-jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg head "$HEAD_SHA" '
+jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg pr_base_ref "$PR_BASE_REF" --arg head "$HEAD_SHA" '
   .schema_version == "pr-review-receipt.v1"
   and .base_ref == $base
   and .pr_base == $pr_base
+  and .pr_base_ref == $pr_base_ref
   and .head == $head
   and .verdict == "APPROVE"
   and (.reviewed_at | type == "string")
@@ -130,6 +155,26 @@ jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg head "$HEAD_SHA" '
 
 # upstream remote が gh の既定になっていても、origin のPRだけを操作する。
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate verify --base "$BASE")
+
+# review artifactに記録したPR baseとlive PR baseが違えばreceiptを発行しない。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
+jq '.pr_base = "unreviewed-artifact-base"' "$REVIEW_RESULT" > "$REVIEW_RESULT.tmp"
+mv "$REVIEW_RESULT.tmp" "$REVIEW_RESULT"
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+artifact_base_rc=$?
+set -e
+[ "$artifact_base_rc" -ne 0 ] || fail "record must reject an unreviewed review artifact base"
+
+# base branchのretargetは同じSHAでもreceiptを無効にする。
+PR_BASE_REF="release/v2"
+set +e
+(cd "$REPO" && run_gate verify --base "$BASE") >/dev/null 2>&1
+retarget_rc=$?
+set -e
+[ "$retarget_rc" -ne 0 ] || fail "verify must reject a retargeted PR base branch"
+PR_BASE_REF="main"
 
 # review-result.v1 でない手製のAPPROVEはreceiptにできない。
 printf '{"verdict":"APPROVE","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"
@@ -185,6 +230,27 @@ set -e
 [ "$remote_base_rc" -ne 0 ] || fail "merge must reject an unreviewed remote PR base"
 [ ! -s "$MERGE_LOG" ] || fail "remote base mismatch must not invoke gh pr merge"
 PR_BASE_SHA="$BASE"
+
+# strict protectionがないbaseでは、verify直後のbase更新競合を防げないためmergeしない。
+PR_BASE_PROTECTION_AVAILABLE=false
+: > "$MERGE_LOG"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+missing_protection_rc=$?
+set -e
+[ "$missing_protection_rc" -ne 0 ] || fail "merge must reject an unprotected base"
+[ ! -s "$MERGE_LOG" ] || fail "unprotected base must not invoke gh pr merge"
+PR_BASE_PROTECTION_AVAILABLE=true
+
+PR_BASE_PROTECTION_STRICT=false
+: > "$MERGE_LOG"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+unprotected_merge_rc=$?
+set -e
+[ "$unprotected_merge_rc" -ne 0 ] || fail "merge must require strict base protection"
+[ ! -s "$MERGE_LOG" ] || fail "unprotected base must not invoke gh pr merge"
+PR_BASE_PROTECTION_STRICT=true
 
 # mergeはoriginのapproved headに固定する。
 dry_run="$(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE" --dry-run)"
