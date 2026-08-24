@@ -66,6 +66,7 @@ HEAD_SHA="$(git rev-parse --verify HEAD)" || die "HEAD is unavailable"
 PR_REPO=""
 PR_NUMBER=""
 PR_HEAD=""
+PR_BASE=""
 
 origin_repo() {
   local url
@@ -92,12 +93,14 @@ load_pr_context() {
   branch="$(git branch --show-current)"
   [ -n "$branch" ] || die "current branch is unavailable"
   PR_REPO="$(origin_repo)" || die "origin must be a GitHub repository"
-  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid 2>/dev/null)" \
+  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid,baseRefOid 2>/dev/null)" \
     || die "no PR found for the current origin branch"
   PR_NUMBER="$(jq -er '.number | tonumber' <<<"$pr_json")" \
     || die "could not read PR number"
   PR_HEAD="$(jq -er '.headRefOid' <<<"$pr_json")" \
     || die "could not read PR head"
+  PR_BASE="$(jq -er '.baseRefOid' <<<"$pr_json")" \
+    || die "could not read PR base"
   [ "$PR_HEAD" = "$HEAD_SHA" ] \
     || die "live PR head is $PR_HEAD, but local HEAD is $HEAD_SHA"
 }
@@ -140,10 +143,11 @@ record() {
     --arg schema_version "pr-review-receipt.v1" \
     --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
+    --arg pr_base "$PR_BASE" \
     --arg head "$HEAD_SHA" \
     --arg verdict "$verdict" \
     --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
+    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, pr_base: $pr_base, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
     > "$temp"
   mv "$temp" "$receipt"
   echo "Recorded APPROVE receipt for PR #$PR_NUMBER"
@@ -157,10 +161,12 @@ verify() {
   jq -e \
     --argjson pr_number "$PR_NUMBER" \
     --arg base_ref "$BASE_SHA" \
+    --arg pr_base "$PR_BASE" \
     --arg head "$PR_HEAD" \
     '.schema_version == "pr-review-receipt.v1"
       and .pr_number == $pr_number
       and .base_ref == $base_ref
+      and .pr_base == $pr_base
       and .head == $head
       and .verdict == "APPROVE"
       and (.reviewed_at | type == "string")' \

@@ -822,7 +822,7 @@ bash "$PR_REVIEW_GATE" record --base "$BASE_REF"
 bash "$PR_REVIEW_GATE" merge --base "$BASE_REF"
 ```
 
-`record` は origin の current PR、review対象base、local HEAD と live PR head、`APPROVE` を照合する。`merge` は origin と receipt head を `--match-head-commit` で固定する。`REQUEST_CHANGES`、receipt 不在、または review 後の local/remote push では merge を止め、PR 全体を再レビューする。GitHub Web UI の人手 merge は対象外。
+`record` は origin の current PR、review対象base、local HEAD、live PR のbase/head、`APPROVE` を照合する。`merge` は origin と receipt head を `--match-head-commit` で固定する。`REQUEST_CHANGES`、receipt 不在、または review 後の local/remote push・base branch更新では merge を止め、PR 全体を再レビューする。GitHub Web UI の人手 merge は対象外。
 
 ## Completion Report Output Contract
 

@@ -35,6 +35,7 @@ printf 'change\n' >> "$REPO/file.txt"
 git -C "$REPO" commit -qam change
 HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
 PR_HEAD_SHA="$HEAD_SHA"
+PR_BASE_SHA="$BASE"
 
 cat > "$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -44,7 +45,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
     exit 1
   fi
-  printf '{"number":42,"headRefOid":"%s"}\n' "$PR_HEAD_SHA"
+  printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
@@ -67,7 +68,7 @@ write_result() {
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
@@ -116,9 +117,10 @@ write_result
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 RECEIPT="$REPO/.git/harness/pr-review-receipts/42.json"
 [ -f "$RECEIPT" ] || fail "record must write a PR receipt"
-jq -e --arg base "$BASE" --arg head "$HEAD_SHA" '
+jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg head "$HEAD_SHA" '
   .schema_version == "pr-review-receipt.v1"
   and .base_ref == $base
+  and .pr_base == $pr_base
   and .head == $head
   and .verdict == "APPROVE"
   and (.reviewed_at | type == "string")
@@ -172,6 +174,17 @@ set -e
 [ "$remote_head_rc" -ne 0 ] || fail "merge must reject an unreviewed remote PR head"
 [ ! -s "$MERGE_LOG" ] || fail "remote head mismatch must not invoke gh pr merge"
 PR_HEAD_SHA="$HEAD_SHA"
+
+# base branch が進んだPRは、headが同じでも再レビュー前にmergeできない。
+PR_BASE_SHA="unreviewed-remote-base"
+: > "$MERGE_LOG"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+remote_base_rc=$?
+set -e
+[ "$remote_base_rc" -ne 0 ] || fail "merge must reject an unreviewed remote PR base"
+[ ! -s "$MERGE_LOG" ] || fail "remote base mismatch must not invoke gh pr merge"
+PR_BASE_SHA="$BASE"
 
 # mergeはoriginのapproved headに固定する。
 dry_run="$(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE" --dry-run)"
