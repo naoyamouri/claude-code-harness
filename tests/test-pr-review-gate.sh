@@ -25,6 +25,7 @@ mkdir -p "$REPO" "$BIN"
 git -C "$REPO" init -q
 git -C "$REPO" config user.email test@example.com
 git -C "$REPO" config user.name Test
+git -C "$REPO" remote add origin https://github.com/test-owner/test-repo.git
 printf 'seed\n' > "$REPO/file.txt"
 git -C "$REPO" add file.txt
 git -C "$REPO" commit -q -m seed
@@ -39,6 +40,9 @@ cat > "$BIN/gh" <<'EOF'
 set -euo pipefail
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   [ "${NO_PR:-0}" = "1" ] && exit 1
+  if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
+    exit 1
+  fi
   printf '{"number":42}\n'
   exit 0
 fi
@@ -117,6 +121,9 @@ jq -e --arg base "$BASE" --arg head "$HEAD_SHA" '
 ' "$RECEIPT" >/dev/null || fail "receipt fields are incomplete"
 
 (cd "$REPO" && run_gate verify --base "$BASE")
+
+# upstream remote が gh の既定になっていても、origin のPRを検出する。
+(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate verify --base "$BASE")
 
 # review-result.v1 でない手製のAPPROVEはreceiptにできない。
 printf '{"verdict":"APPROVE","commit_hash":"%s"}\n' "$HEAD_SHA" > "$REVIEW_RESULT"

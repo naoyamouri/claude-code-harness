@@ -64,10 +64,38 @@ BASE_SHA="$(git rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)" \
   || die "invalid base ref: $BASE_REF"
 HEAD_SHA="$(git rev-parse --verify HEAD)" || die "HEAD is unavailable"
 
+origin_repo() {
+  local url
+  url="$(git remote get-url origin 2>/dev/null)" || return 1
+  case "$url" in
+    https://github.com/*|http://github.com/*)
+      url="${url#*github.com/}"
+      ;;
+    git@github.com:*)
+      url="${url#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      url="${url#ssh://git@github.com/}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  printf '%s\n' "${url%.git}"
+}
+
 pr_number() {
-  local pr_json
-  pr_json="$(gh pr view --json number 2>/dev/null)" \
-    || die "no PR found for the current branch"
+  local branch origin pr_json
+  branch="$(git branch --show-current)"
+  [ -n "$branch" ] || die "current branch is unavailable"
+  origin="$(origin_repo || true)"
+  if [ -n "$origin" ]; then
+    pr_json="$(gh pr view "$branch" --repo "$origin" --json number 2>/dev/null)" || true
+  fi
+  if [ -z "${pr_json:-}" ]; then
+    pr_json="$(gh pr view "$branch" --json number 2>/dev/null)" \
+      || die "no PR found for the current branch"
+  fi
   jq -er '.number | tonumber' <<<"$pr_json" \
     || die "could not read PR number"
 }
