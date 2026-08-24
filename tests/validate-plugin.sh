@@ -1272,6 +1272,12 @@ else
     fail_test "harness-review governance contract failed — 'bash tests/test-harness-review-governance.sh' で詳細確認"
 fi
 
+if bash "$PLUGIN_ROOT/tests/test-pr-review-gate.sh" > /dev/null 2>&1; then
+    pass_test "PR review receipt は APPROVE / base / HEAD を照合して agent merge を fail closed にします"
+else
+    fail_test "PR review gate contract failed — 'bash tests/test-pr-review-gate.sh' で詳細確認"
+fi
+
 if bash "$PLUGIN_ROOT/tests/test-harness-release-governance.sh" > /dev/null 2>&1; then
     pass_test "harness-release は bare invocation / 未レビュー AskUserQuestion / review→commit→release gate / mirror sync を満たします"
 else

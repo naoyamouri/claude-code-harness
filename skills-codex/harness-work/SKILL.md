@@ -802,6 +802,21 @@ Breezing モードでは **Lead** がレビューループを実行する（上�
 4. 修正後、再レビュー（`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3` 回まで）
 5. APPROVE → Lead が trunk（デフォルトブランチ）に cherry-pick → Plans.md を `cc:完了 [{hash}]` に更新
 
+## A lane PR の自動レビューと merge gate
+
+`gh pr create --base main` の直後、Lead は PR 全体に対して `$harness-review code --base "$BASE_REF" --no-commit` を自動実行する。task 開始時の `BASE_REF` ではなく、必ず PR 作成後に `origin/main` との merge-base を取り直す。
+
+```bash
+git fetch origin main
+BASE_REF="$(git merge-base origin/main HEAD)"
+# review の APPROVE 出力を review-result.v1 に正規化して保存してから:
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$BASE_REF"
+# agent による merge は raw gh pr merge を使わない:
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
+```
+
+`record` は current PR、base、HEAD、`APPROVE` を照合する。`REQUEST_CHANGES`、receipt 不在、または review 後の追加 commit では merge を止め、修正後に PR 全体を再レビューする。GitHub Web UI の人手 merge は対象外。
+
 ## Completion Report Output Contract
 
 <!-- harness-work-completion-output-contract:start -->
