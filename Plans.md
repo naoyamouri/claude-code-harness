@@ -189,6 +189,6 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 142.1 | `[lane:gate] [tdd:required]` PR review receipt と merge helper を実装し、Claude/Codex adapter と mirror に配る。 | RED: remote PR base/head不一致で既存gateが通る（2026-08-24: `FAIL: merge must reject an unreviewed remote PR base`、`Unknown option: --pr-base`、`.claude/state/tdd-red-log/142.1.jsonl`）。GREEN: receipt = local HEAD = live `headRefOid`、receiptとreview artifactの`pr_base` / `pr_base_ref` = live `baseRefOid` / `baseRefName`、originを明示した`--match-head-commit` merge、required status checksの`strict: true`なしはmerge拒否、PRなし/request changes/stale local・remote base/head/retargetのfixture、既存`[features]`へ`multi_agent`を統合する設定回帰テスト、plugin validationが通る。 | - | cc:WIP |
+| 142.1 | `[lane:gate] [tdd:required]` PR review receipt と merge helper を実装し、Claude/Codex adapter と mirror に配る。 | RED: remote PR base/head不一致で既存gateが通る、およびstring `observations`で正規化が停止する（2026-08-24: `FAIL: merge must reject an unreviewed remote PR base`、`Unknown option: --pr-base`、`Cannot index string with string "severity"`、`.claude/state/tdd-red-log/142.1.jsonl`）。GREEN: receipt = local HEAD = live `headRefOid`、receiptとreview artifactの`pr_base` / `pr_base_ref` = live `baseRefOid` / `baseRefName`、文字列/構造化`observations`を同じseverity規則で正規化、originを明示した`--match-head-commit` merge、required status checksの`strict: true`なしはmerge拒否、PRなし/request changes/stale local・remote base/head/retargetのfixture、既存`[features]`へ`multi_agent`を統合する設定回帰テスト、plugin validationが通る。 | - | cc:WIP |
 
 ---

@@ -17,6 +17,7 @@ cat > "${TMP_DIR}/input.json" <<'EOF'
   },
   "critical_issues": [],
   "major_issues": [],
+  "observations": ["review-weak-supervision-report.sh is not configured"],
   "recommendations": ["keep watching browser flow"]
 }
 EOF
@@ -32,7 +33,8 @@ jq -e '
   .base_ref == "base5678" and
   .pr_base == "prbase890" and
   .pr_base_ref == "release/v2" and
-  (.followups | length) == 1
+  (.followups | length) == 2 and
+  ([.followups[] | select(type == "object" and .issue == "review-weak-supervision-report.sh is not configured" and .severity == "minor")] | length) == 1
 ' "${TMP_DIR}/review-result.json" >/dev/null
 
 jq -e '
