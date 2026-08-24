@@ -21,7 +21,7 @@ cat > "${TMP_DIR}/input.json" <<'EOF'
 }
 EOF
 
-(cd "$TMP_DIR" && "${PROJECT_ROOT}/scripts/write-review-result.sh" "${TMP_DIR}/input.json" "abc1234" "${TMP_DIR}/review-result.json" >/dev/null)
+(cd "$TMP_DIR" && "${PROJECT_ROOT}/scripts/write-review-result.sh" "${TMP_DIR}/input.json" "abc1234" "${TMP_DIR}/review-result.json" --base-ref "base5678" --pr-base "prbase890" --pr-base-ref "release/v2" >/dev/null)
 
 jq -e '
   .schema_version == "review-result.v1" and
@@ -29,6 +29,9 @@ jq -e '
   .reviewer_profile == "runtime" and
   .task.id == "32.0.2" and
   .commit_hash == "abc1234" and
+  .base_ref == "base5678" and
+  .pr_base == "prbase890" and
+  .pr_base_ref == "release/v2" and
   (.followups | length) == 1
 ' "${TMP_DIR}/review-result.json" >/dev/null
 

@@ -802,6 +802,32 @@ Breezing モードでは **Lead** がレビューループを実行する（上�
 4. 修正後、再レビュー（`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3` 回まで）
 5. APPROVE → Lead が trunk（デフォルトブランチ）に cherry-pick → Plans.md を `cc:完了 [{hash}]` に更新
 
+## A lane PR の自動レビューと merge gate
+
+`gh pr create` の直後、Lead は PR 全体に対して `$harness-review code --base "$BASE_REF" --no-commit` を自動実行する。task開始時の`BASE_REF`ではなく、必ずPR作成後に当該PRの`baseRefName`とのmerge-baseを取り直す。
+
+```bash
+# review の構造化JSONを .claude/state/pr-review-output.json に保存して正規化する:
+PR_REVIEW_GATE="${HARNESS_PLUGIN_ROOT:-}/scripts/harness-pr-review-gate.sh"
+if [ ! -x "$PR_REVIEW_GATE" ]; then PR_REVIEW_GATE="${CODEX_HOME:-$HOME/.codex}/bin/harness-pr-review-gate.sh"; fi
+WRITE_REVIEW_RESULT="${HARNESS_PLUGIN_ROOT:-}/scripts/write-review-result.sh"
+if [ ! -x "$WRITE_REVIEW_RESULT" ]; then WRITE_REVIEW_RESULT="${CODEX_HOME:-$HOME/.codex}/bin/write-review-result.sh"; fi
+PR_CONTEXT="$(bash "$PR_REVIEW_GATE" context)"
+PR_BASE_REF="$(jq -er '.base_ref' <<<"$PR_CONTEXT")"
+PR_BASE="$(jq -er '.base_oid' <<<"$PR_CONTEXT")"
+git fetch origin "$PR_BASE_REF"
+BASE_REF="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+bash "$WRITE_REVIEW_RESULT" \
+  .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
+  .claude/state/review-result.json --base-ref "$BASE_REF" \
+  --pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"
+bash "$PR_REVIEW_GATE" record --base "$BASE_REF"
+# agent による merge は raw gh pr merge を使わない:
+bash "$PR_REVIEW_GATE" merge --base "$BASE_REF"
+```
+
+`record` はoriginのcurrent PR、review対象base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、live PRのbase名/SHA/head、`APPROVE`を照合する。`merge`はoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければmergeを止める。`REQUEST_CHANGES`、receipt不在、またはreview後のlocal/remote push・base名/SHA更新ではPR全体を再レビューする。GitHub Web UIの人手mergeは対象外。
+
 ## Completion Report Output Contract
 
 <!-- harness-work-completion-output-contract:start -->

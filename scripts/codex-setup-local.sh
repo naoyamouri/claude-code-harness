@@ -423,6 +423,23 @@ copy_project_agents() {
   echo "AGENTS.md copied to project root"
 }
 
+install_codex_helper() {
+  local plugin_dir="$1"
+  local target_root="$2"
+  local backup_root="$3"
+  local helper_name="$4"
+  local src="$plugin_dir/scripts/$helper_name"
+  local dst_dir="$target_root/bin"
+  local dst="$dst_dir/$helper_name"
+
+  [ -x "$src" ] || fail "Codex helper source not found: $src"
+  mkdir -p "$dst_dir"
+  backup_path "$dst" "$backup_root"
+  cp "$src" "$dst"
+  chmod +x "$dst"
+  echo "Codex helper installed to $dst"
+}
+
 ensure_multi_agent_defaults() {
   local target_root="$1"
   local cfg="$target_root/config.toml"
@@ -454,11 +471,26 @@ CFG
   fi
 
   if ! grep -q '^[[:space:]]*multi_agent[[:space:]]*=' "$cfg"; then
-    cat >> "$cfg" <<'CFG'
+    if grep -q '^[[:space:]]*\[features\][[:space:]]*$' "$cfg"; then
+      local tmp_cfg
+      tmp_cfg="$(mktemp "${cfg}.tmp.XXXXXX")"
+      awk '
+        !added && /^[[:space:]]*\[features\][[:space:]]*$/ {
+          print
+          print "multi_agent = true"
+          added = 1
+          next
+        }
+        { print }
+      ' "$cfg" > "$tmp_cfg"
+      mv "$tmp_cfg" "$cfg"
+    else
+      cat >> "$cfg" <<'CFG'
 
 [features]
 multi_agent = true
 CFG
+    fi
     echo "Enabled features.multi_agent in $cfg"
   fi
 
@@ -527,6 +559,8 @@ cleanup_legacy_skill_name_duplicates "$PLUGIN_DIR/codex/.codex/skills" "$target_
 cleanup_removed_harness_skill_entries "$PLUGIN_DIR/codex/.codex/skills" "$target_root/skills" "$backup_root"
 sync_named_children "$PLUGIN_DIR/codex/.codex/skills" "$target_root/skills" "Skills" "$backup_root"
 sync_named_children "$PLUGIN_DIR/codex/.codex/rules" "$target_root/rules" "Rules" "$backup_root"
+install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "write-review-result.sh"
+install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-review-gate.sh"
 
 if [ "$TARGET_MODE" = "project" ]; then
   copy_project_agents "$PLUGIN_DIR" "$backup_root"

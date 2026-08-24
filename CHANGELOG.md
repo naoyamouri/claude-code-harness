@@ -12,6 +12,7 @@ Change history for claude-code-harness.
 
 ### Added
 
+- Claude Code / Codex の A lane PR は、共通 receipt を記録した後にだけ agent merge できるようになった。receipt と local/remote PR base/head が一致しない更新は再レビューを要求する
 - Chachamaru 本家の `main` を毎日検査し、fork 未取込時だけ reviewable な同期 PR を作る GitHub Actions workflow を追加。SessionStart は、CI と `$harness-review` を通して merge 済みの fork だけを従来どおり配布する
 
 ### Fixed

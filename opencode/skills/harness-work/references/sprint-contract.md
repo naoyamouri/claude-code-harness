@@ -54,4 +54,26 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-closeout.sh" push --payload .cla
 
 `harness-review` 経路からの自動 push / PR / merge は禁止（read-only boundary）。detached HEAD では `push` 前に branch 作成が必要。
 
+## PR 作成後の共通レビューゲート
+
+A lane の PR では、`gh pr create` の直後に PR 全体をレビューする。task 内レビューだけで merge しない。
+
+```bash
+PR_CONTEXT="$(bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" context)"
+PR_BASE_REF="$(jq -er '.base_ref' <<<"$PR_CONTEXT")"
+PR_BASE="$(jq -er '.base_oid' <<<"$PR_CONTEXT")"
+git fetch origin "$PR_BASE_REF"
+BASE_REF="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+# harness-review code --base "$BASE_REF" --no-commit を実行し、その構造化JSONを .claude/state/pr-review-output.json に保存する。
+bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh" \
+  .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
+  .claude/state/review-result.json --base-ref "$BASE_REF" \
+  --pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$BASE_REF"
+# merge は raw gh pr merge ではなく、この helper だけを使う:
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
+```
+
+`record` は origin のcurrent PR、review base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、live PRのbase名/SHA/head、`review-result.v1`の`APPROVE`を照合してreceiptをGit common dirに保存する。`merge`は同じoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければfail closedにする。PRがない、`REQUEST_CHANGES`、base名/SHA/head不一致、またはreview後のlocal/remote push・base branch更新は再レビューする。GitHub Web UIの人手mergeはこのagent gateの対象外。
+
 **Fast lane の軽量化境界**: `lane: fast` は full review を省略できるが、`not_observed != absent` の unknown data contract と focused checks（`runtime_validation` / `checks` の DoD 分解）は省かない。

@@ -106,6 +106,16 @@ acceptance bar is met.
 
 PR closeout belongs to `harness-work`, not `harness-review`.
 
+An agent merge resolves the current PR through `origin`, and must fail closed
+unless the review receipt head equals both local `HEAD` and GitHub's live PR
+head, its recorded `pr_base` equals GitHub's live `baseRefOid`, and its
+`pr_base_ref` equals the live `baseRefName`. The review artifact carries the
+same base name/SHA, so a base update between review and receipt recording also
+requires re-review. The merge command pins the reviewed head with `--repo` and
+`--match-head-commit`, and requires required status checks with `strict: true`
+on the live base branch. That GitHub-enforced setting rejects a merge when the
+base advances after the helper's final verification.
+
 Release belongs to `harness-release`, not PR closeout.
 
 Do not merge these stages:

@@ -5,8 +5,7 @@ description: "HAR: Multi-angle code, plan, scope review. Security/quality check.
 
 # Harness Review
 
-Harness の統合レビュースキル。
-この `SKILL.md` は薄い dispatcher であり、詳細な品質基準は `references/` を読む。
+Harness の統合レビュースキル。薄い dispatcher として詳細な品質基準は `references/` を読む。
 
 if $ARGUMENTS == "":
   → 「今までの作業のレビュー」と解釈し、Review target detection を実行する
@@ -48,6 +47,7 @@ commit / push / release は既定では行わない。
 | `/harness-review --security` | `security` | security 専用 review |
 | `/harness-review plan` | `plan` | `Plans.md` の計画 review |
 | `/harness-review scope` | `scope` | scope creep / 漏れ review |
+`code --base REF --no-commit` は `REF..HEAD` を固定対象とし、reviewer は構造化 `review-result.v1` だけを返す（保存・commit・push・merge は呼出元）。
 ## Mode Decision
 
 引数から実行 mode を決定し、必要な `references/` を選択ロードする。

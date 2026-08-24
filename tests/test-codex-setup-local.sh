@@ -63,6 +63,12 @@ run_setup "$HOME_ONE"
 
 assert_symlink "$CODEX_ONE/skills/breezing"
 assert_file "$SOURCE_SKILL_FILE"
+assert_file "$CODEX_ONE/bin/harness-pr-review-gate.sh"
+assert_file "$CODEX_ONE/bin/write-review-result.sh"
+if [ ! -x "$CODEX_ONE/bin/harness-pr-review-gate.sh" ]; then
+  echo "expected executable PR review gate" >&2
+  exit 1
+fi
 
 # Case 2: the user skill is a symlink to some other local directory.
 # Setup should back up the symlink itself, replace it with a real copied skill
@@ -100,6 +106,25 @@ backup_count="$(
 )"
 if [ "$backup_count" -lt 2 ]; then
   echo "expected at least 2 SKILL.md backups, found $backup_count" >&2
+  exit 1
+fi
+
+# Case 4: merge multi_agent into an existing features table instead of
+# appending a duplicate TOML table.
+HOME_FOUR="$TMP_ROOT/home-existing-features"
+CODEX_FOUR="$HOME_FOUR/.codex"
+mkdir -p "$CODEX_FOUR"
+printf '[features]\njs_repl = false\n' > "$CODEX_FOUR/config.toml"
+
+run_setup "$HOME_FOUR"
+
+feature_table_count="$(grep -c '^\[features\]$' "$CODEX_FOUR/config.toml")"
+if [ "$feature_table_count" -ne 1 ]; then
+  echo "expected one features table, found $feature_table_count" >&2
+  exit 1
+fi
+if ! grep -q '^[[:space:]]*multi_agent[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$CODEX_FOUR/config.toml"; then
+  echo "expected features.multi_agent = true" >&2
   exit 1
 fi
 
