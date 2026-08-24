@@ -72,6 +72,7 @@ PR_NUMBER=""
 PR_HEAD=""
 PR_BASE=""
 PR_BASE_REF=""
+STRICT_BASE_PROTECTION=1
 
 origin_repo() {
   local url
@@ -196,12 +197,38 @@ require_strict_base_protection() {
   local encoded_base_ref protection strict
   encoded_base_ref="$(jq -rn --arg value "$PR_BASE_REF" '$value | @uri')" \
     || die "could not encode PR base branch"
-  protection="$(gh api "repos/$PR_REPO/branches/$encoded_base_ref/protection/required_status_checks" 2>/dev/null)" \
-    || die "agent merge requires required status checks with 'Require branches to be up to date before merging' on $PR_BASE_REF"
+  if ! protection="$(gh api "repos/$PR_REPO/branches/$encoded_base_ref/protection/required_status_checks" --include 2>&1)"; then
+    if [[ "$protection" == *"403 Forbidden"* ]] \
+      && [[ "$protection" == *"Upgrade to GitHub Pro or make this repository public"* ]]; then
+      echo "pr-review-gate: GitHub Free private repository; strict base protection is unavailable, using reviewed base/head checks" >&2
+      STRICT_BASE_PROTECTION=0
+      return
+    fi
+    die "agent merge requires required status checks with 'Require branches to be up to date before merging' on $PR_BASE_REF"
+  fi
+  protection="$(sed -n '/^{/,$p' <<<"$protection")"
   strict="$(jq -er '.strict' <<<"$protection" 2>/dev/null)" \
     || die "could not read base branch protection for $PR_BASE_REF"
   [ "$strict" = "true" ] \
     || die "agent merge requires 'Require branches to be up to date before merging' on $PR_BASE_REF"
+}
+
+verify_merge_submission() {
+  local pr_json state merge_state merge_commit
+  pr_json="$(gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json state,mergeStateStatus,mergedAt,mergeCommit 2>/dev/null)" \
+    || die "could not verify merged PR #$PR_NUMBER"
+  state="$(jq -er '.state' <<<"$pr_json")" \
+    || die "could not read PR state after merge"
+  merge_state="$(jq -er '.mergeStateStatus' <<<"$pr_json")" \
+    || die "could not read PR merge state after merge"
+  if [ "$state" = "OPEN" ] && [ "$merge_state" = "QUEUED" ]; then
+    echo "PR #$PR_NUMBER merge is queued"
+    return
+  fi
+  merge_commit="$(jq -er '.mergeCommit.oid' <<<"$pr_json")" \
+    || die "could not read merge commit after merge"
+  [ "$state" = "MERGED" ] && [ -n "$merge_commit" ] \
+    || die "PR #$PR_NUMBER was not merged"
 }
 
 case "$ACTION" in
@@ -227,10 +254,12 @@ case "$ACTION" in
   merge)
     verify
     require_strict_base_protection
+    [ "$STRICT_BASE_PROTECTION" = 1 ] || verify
     if [ "$DRY_RUN" -eq 1 ]; then
       echo "gh pr merge $PR_NUMBER --repo $PR_REPO --squash --match-head-commit $HEAD_SHA"
     else
       gh pr merge "$PR_NUMBER" --repo "$PR_REPO" --squash --match-head-commit "$HEAD_SHA"
+      verify_merge_submission
     fi
     ;;
   *)

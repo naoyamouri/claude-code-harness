@@ -20,6 +20,7 @@ fail() {
 REPO="$TMP_DIR/repo"
 BIN="$TMP_DIR/bin"
 MERGE_LOG="$TMP_DIR/merge.log"
+PR_VIEW_LOG="$TMP_DIR/pr-view.log"
 mkdir -p "$REPO" "$BIN"
 
 git -C "$REPO" init -q
@@ -43,8 +44,19 @@ cat > "$BIN/gh" <<'EOF'
 set -euo pipefail
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   [ "${NO_PR:-0}" = "1" ] && exit 1
+  [ -z "${PR_VIEW_LOG:-}" ] || printf '%s\n' "$*" >> "$PR_VIEW_LOG"
   if [ "${REQUIRE_ORIGIN_REPO:-0}" = "1" ] && [[ "$*" != *"--repo test-owner/test-repo"* ]]; then
     exit 1
+  fi
+  if [[ "$*" == *"state,mergeStateStatus,mergedAt,mergeCommit"* ]]; then
+    if [ "${PR_MERGED:-true}" = "true" ]; then
+      printf '{"state":"MERGED","mergeStateStatus":"CLEAN","mergedAt":"2026-01-01T00:00:00Z","mergeCommit":{"oid":"merged-sha"}}\n'
+    elif [ "${PR_MERGE_QUEUED:-false}" = "true" ]; then
+      printf '{"state":"OPEN","mergeStateStatus":"QUEUED","mergedAt":null,"mergeCommit":null}\n'
+    else
+      printf '{"state":"OPEN","mergeStateStatus":"CLEAN","mergedAt":null,"mergeCommit":null}\n'
+    fi
+    exit 0
   fi
   printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$MOCK_PR_BASE_REF"
   exit 0
@@ -52,7 +64,11 @@ fi
 if [ "$1" = "api" ]; then
   expected_endpoint="repos/test-owner/test-repo/branches/$MOCK_PR_BASE_REF/protection/required_status_checks"
   [[ "$*" == *"$expected_endpoint"* ]] || exit 1
-  [ "${PR_BASE_PROTECTION_AVAILABLE:-true}" = "true" ] || exit 1
+  if [ "${PR_BASE_PROTECTION_AVAILABLE:-true}" != "true" ]; then
+    echo 'HTTP/2.0 403 Forbidden' >&2
+    echo '{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}' >&2
+    exit 1
+  fi
   if [ "${PR_BASE_PROTECTION_STRICT:-true}" = "true" ]; then
     printf '{"strict":true}\n'
   else
@@ -80,7 +96,7 @@ write_result() {
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_VIEW_LOG="$PR_VIEW_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" PR_MERGED="${PR_MERGED:-true}" PR_MERGE_QUEUED="${PR_MERGE_QUEUED:-false}" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
@@ -113,6 +129,10 @@ for workflow_file in \
     || fail "workflow does not bind the PR review to its base: $workflow_file"
   grep -Fq 'PR_CONTEXT=' "$workflow_file" \
     || fail "workflow does not resolve the live PR base: $workflow_file"
+  grep -Fq 'pr-review-report.md' "$workflow_file" \
+    || fail "workflow does not preserve the human-readable PR review report: $workflow_file"
+  grep -Fq -- '--report .claude/state/pr-review-report.md' "$workflow_file" \
+    || fail "workflow does not direct the reviewer to write the human-readable report: $workflow_file"
   grep -Fq -- '--pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"' "$workflow_file" \
     || fail "workflow does not record the live PR base in its review artifact: $workflow_file"
 done
@@ -231,15 +251,15 @@ set -e
 [ ! -s "$MERGE_LOG" ] || fail "remote base mismatch must not invoke gh pr merge"
 PR_BASE_SHA="$BASE"
 
-# strict protectionがないbaseでは、verify直後のbase更新競合を防げないためmergeしない。
+# private Free の既知403では、live PRを直前照合した縮退経路でmergeする。
 PR_BASE_PROTECTION_AVAILABLE=false
 : > "$MERGE_LOG"
-set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
-missing_protection_rc=$?
-set -e
-[ "$missing_protection_rc" -ne 0 ] || fail "merge must reject an unprotected base"
-[ ! -s "$MERGE_LOG" ] || fail "unprotected base must not invoke gh pr merge"
+: > "$PR_VIEW_LOG"
+free_private_dry_run="$(cd "$REPO" && run_gate merge --base "$BASE" --dry-run)"
+[[ "$free_private_dry_run" == *"--match-head-commit $HEAD_SHA"* ]] \
+  || fail "Free private fallback must retain the reviewed head pin"
+[ "$(wc -l < "$PR_VIEW_LOG" | tr -d ' ')" = 2 ] \
+  || fail "Free private fallback must revalidate the live PR immediately before merge"
 PR_BASE_PROTECTION_AVAILABLE=true
 
 PR_BASE_PROTECTION_STRICT=false
@@ -259,6 +279,26 @@ expected_merge="gh pr merge 42 --repo test-owner/test-repo --squash --match-head
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE")
 grep -Fq -- "--repo test-owner/test-repo" "$MERGE_LOG" || fail "guarded merge must target origin"
 grep -Fq -- "--match-head-commit $HEAD_SHA" "$MERGE_LOG" || fail "guarded merge must pin the approved head"
+
+# mergeが実際に完了していないなら成功扱いにしない。
+PR_MERGED=false
+: > "$MERGE_LOG"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE") >/dev/null 2>&1
+unmerged_rc=$?
+set -e
+[ "$unmerged_rc" -ne 0 ] || fail "merge must verify that GitHub reports MERGED"
+grep -Fq -- "--match-head-commit $HEAD_SHA" "$MERGE_LOG" || fail "failed post-merge verification must follow a head-pinned merge"
+PR_MERGED=true
+
+# merge queue に受理された状態は失敗ではなく、queue中であることを明示する。
+PR_MERGED=false
+PR_MERGE_QUEUED=true
+queued_output="$(cd "$REPO" && run_gate merge --base "$BASE")"
+[[ "$queued_output" == *"merge is queued"* ]] \
+  || fail "merge queue submission must be reported as queued"
+PR_MERGED=true
+PR_MERGE_QUEUED=false
 
 # pushでHEADが変われば以前のreceiptは無効。
 printf 'next\n' >> "$REPO/file.txt"

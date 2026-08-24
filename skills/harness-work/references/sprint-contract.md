@@ -64,7 +64,9 @@ PR_BASE_REF="$(jq -er '.base_ref' <<<"$PR_CONTEXT")"
 PR_BASE="$(jq -er '.base_oid' <<<"$PR_CONTEXT")"
 git fetch origin "$PR_BASE_REF"
 BASE_REF="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
-# harness-review code --base "$BASE_REF" --no-commit を実行し、その構造化JSONを .claude/state/pr-review-output.json に保存する。
+harness-review code --base "$BASE_REF" --no-commit \
+  --report .claude/state/pr-review-report.md > .claude/state/pr-review-output.json
+# report はreviewerの完全な人向けMarkdown、outputは構造化JSONだけ。JSONから理由・対応を復元しない。
 bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh" \
   .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
   .claude/state/review-result.json --base-ref "$BASE_REF" \
@@ -74,6 +76,6 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$
 bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
 ```
 
-`record` は origin のcurrent PR、review base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、live PRのbase名/SHA/head、`review-result.v1`の`APPROVE`を照合してreceiptをGit common dirに保存する。`merge`は同じoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければfail closedにする。PRがない、`REQUEST_CHANGES`、base名/SHA/head不一致、またはreview後のlocal/remote push・base branch更新は再レビューする。GitHub Web UIの人手mergeはこのagent gateの対象外。
+`record` は origin のcurrent PR、review base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、live PRのbase名/SHA/head、`review-result.v1`の`APPROVE`を照合してreceiptをGit common dirに保存する。`merge`は同じoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければfail closedにする。ただしGitHub Free privateの既知403だけは、merge直前にlive PRを再照合してからhead pin付きで実行し、GitHubが`MERGED`またはmerge queueの`QUEUED`を返すことまで確認する。この経路はbase更新とmergeの競合を原子的には防げない。`strict: false`、認証・通信など他のAPIエラー、PRがない、`REQUEST_CHANGES`、base名/SHA/head不一致、またはreview後のlocal/remote push・base branch更新は従来どおり再レビューまたは拒否する。GitHub Web UIの人手mergeはこのagent gateの対象外。
 
 **Fast lane の軽量化境界**: `lane: fast` は full review を省略できるが、`not_observed != absent` の unknown data contract と focused checks（`runtime_validation` / `checks` の DoD 分解）は省かない。
