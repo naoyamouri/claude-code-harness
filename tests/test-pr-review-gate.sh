@@ -90,8 +90,15 @@ chmod +x "$BIN/gh"
 
 REVIEW_INPUT="$REPO/review-output.json"
 REVIEW_RESULT="$REPO/review-result.json"
+REVIEW_REPORT="$REPO/.claude/state/pr-review-report.md"
+mkdir -p "$(dirname "$REVIEW_REPORT")"
+printf '# PR review\n' > "$REVIEW_REPORT"
 
 write_result() {
+  (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE" --pr-base "$PR_BASE_SHA" --pr-base-ref "$PR_BASE_REF" --review-workflow harness-review --review-mode code --review-report "$REVIEW_REPORT")
+}
+
+write_unprovenanced_result() {
   (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE" --pr-base "$PR_BASE_SHA" --pr-base-ref "$PR_BASE_REF")
 }
 
@@ -133,6 +140,10 @@ for workflow_file in \
     || fail "workflow does not preserve the human-readable PR review report: $workflow_file"
   grep -Fq -- '--report .claude/state/pr-review-report.md' "$workflow_file" \
     || fail "workflow does not direct the reviewer to write the human-readable report: $workflow_file"
+  grep -Fq -- '--review-workflow harness-review --review-mode code' "$workflow_file" \
+    || fail "workflow does not record harness-review provenance: $workflow_file"
+  grep -Fq -- '--review-report .claude/state/pr-review-report.md' "$workflow_file" \
+    || fail "workflow does not bind the receipt to the human-readable report: $workflow_file"
   grep -Fq -- '--pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"' "$workflow_file" \
     || fail "workflow does not record the live PR base in its review artifact: $workflow_file"
 done
@@ -155,6 +166,25 @@ request_changes_rc=$?
 set -e
 [ "$request_changes_rc" -ne 0 ] || fail "record must reject REQUEST_CHANGES"
 
+# workflow を指定しない generic reviewer 出力ではreceiptを発行しない。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_unprovenanced_result
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+unprovenanced_rc=$?
+set -e
+[ "$unprovenanced_rc" -ne 0 ] || fail "record must reject a review result without harness-review provenance"
+
+# report と正規化時のdigestが一致しなければreceiptを発行しない。
+write_result
+printf 'tampered\n' >> "$REVIEW_REPORT"
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+tampered_report_rc=$?
+set -e
+[ "$tampered_report_rc" -ne 0 ] || fail "record must reject a changed review report"
+printf '# PR review\n' > "$REVIEW_REPORT"
+
 # APPROVEのcurrent HEADだけをrecordし、必要な値を残す。
 printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
 write_result
@@ -168,6 +198,9 @@ jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg pr_base_ref "$PR_BAS
   and .pr_base_ref == $pr_base_ref
   and .head == $head
   and .verdict == "APPROVE"
+  and .review_workflow == "harness-review"
+  and .review_mode == "code"
+  and (.review_report_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.reviewed_at | type == "string")
 ' "$RECEIPT" >/dev/null || fail "receipt fields are incomplete"
 
