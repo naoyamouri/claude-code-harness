@@ -20,7 +20,7 @@ skill 結論時の output の **最後の 1 行**は必ず次の literal を含�
 
 `↑この結果は Claude が要約します。Enter キーで次へ進むか、新規 prompt で別の指示を出してください。`
 
-これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。
+これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。ただし `code --no-commit --report FILE` では stdout に P35 フッターを付けない。`review-result.v1` のJSONだけをstdoutへ出し、人向けMarkdownは `FILE` に保存する。
 
 ## Dispatcher Contract
 

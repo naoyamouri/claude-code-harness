@@ -55,6 +55,7 @@ required_skill_terms=(
   "対応:"
   "--report FILE"
   'emit only the `review-result.v1` JSON to stdout'
+  '`code --no-commit --report FILE` では stdout に P35 フッターを付けない'
   "↑この結果は Claude が要約します"
 )
 
