@@ -38,6 +38,7 @@ HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
 PR_HEAD_SHA="$HEAD_SHA"
 PR_BASE_SHA="$BASE"
 PR_BASE_REF="main"
+DEFAULT_CHECKS='[{"name":"Tests","state":"SUCCESS","workflow":"Tests"}]'
 
 cat > "$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -58,15 +59,27 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
     fi
     exit 0
   fi
-  printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$MOCK_PR_BASE_REF"
+  printf '{"number":42,"headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s","isDraft":%s,"mergeStateStatus":"%s","mergeable":"%s"}\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$MOCK_PR_BASE_REF" "${MOCK_PR_DRAFT:-false}" "${MOCK_PR_MERGE_STATE:-CLEAN}" "${MOCK_PR_MERGEABLE:-MERGEABLE}"
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  printf '%s\n' "${PR_CHECKS_JSON:-$DEFAULT_CHECKS}"
   exit 0
 fi
 if [ "$1" = "api" ]; then
+  if [[ "$*" == *"repos/test-owner/test-repo --jq .private"* ]]; then
+    printf '%s\n' "${PR_REPO_PRIVATE:-true}"
+    exit 0
+  fi
   expected_endpoint="repos/test-owner/test-repo/branches/$MOCK_PR_BASE_REF/protection/required_status_checks"
   [[ "$*" == *"$expected_endpoint"* ]] || exit 1
   if [ "${PR_BASE_PROTECTION_AVAILABLE:-true}" != "true" ]; then
     echo 'HTTP/2.0 403 Forbidden' >&2
-    echo '{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}' >&2
+    if [ "${PR_BASE_PROTECTION_ERROR:-free-private}" = "free-private" ]; then
+      echo '{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}' >&2
+    else
+      echo '{"message":"Resource not accessible by integration"}' >&2
+    fi
     exit 1
   fi
   if [ "${PR_BASE_PROTECTION_STRICT:-true}" = "true" ]; then
@@ -103,7 +116,7 @@ write_unprovenanced_result() {
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_VIEW_LOG="$PR_VIEW_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" PR_MERGED="${PR_MERGED:-true}" PR_MERGE_QUEUED="${PR_MERGE_QUEUED:-false}" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_VIEW_LOG="$PR_VIEW_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" PR_BASE_PROTECTION_ERROR="${PR_BASE_PROTECTION_ERROR:-free-private}" PR_REPO_PRIVATE="${PR_REPO_PRIVATE:-true}" PR_CHECKS_JSON="${PR_CHECKS_JSON:-$DEFAULT_CHECKS}" MOCK_PR_DRAFT="${MOCK_PR_DRAFT:-false}" MOCK_PR_MERGE_STATE="${MOCK_PR_MERGE_STATE:-CLEAN}" MOCK_PR_MERGEABLE="${MOCK_PR_MERGEABLE:-MERGEABLE}" PR_MERGED="${PR_MERGED:-true}" PR_MERGE_QUEUED="${PR_MERGE_QUEUED:-false}" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
@@ -298,15 +311,62 @@ set -e
 [ ! -s "$MERGE_LOG" ] || fail "remote base mismatch must not invoke gh pr merge"
 PR_BASE_SHA="$BASE"
 
-# private Free の既知403では、live PRを直前照合した縮退経路でmergeする。
+# private Free の既知403では、人の明示指示、全CI成功、CLEANなPRを要求する。
 PR_BASE_PROTECTION_AVAILABLE=false
 : > "$MERGE_LOG"
 : > "$PR_VIEW_LOG"
-free_private_dry_run="$(cd "$REPO" && run_gate merge --base "$BASE" --dry-run)"
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+free_without_instruction_rc=$?
+set -e
+[ "$free_without_instruction_rc" -ne 0 ] || fail "Free private fallback must require an explicit user merge instruction"
+: > "$PR_VIEW_LOG"
+
+free_private_dry_run="$(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA")"
 [[ "$free_private_dry_run" == *"--match-head-commit $HEAD_SHA"* ]] \
   || fail "Free private fallback must retain the reviewed head pin"
 [ "$(wc -l < "$PR_VIEW_LOG" | tr -d ' ')" = 2 ] \
   || fail "Free private fallback must revalidate the live PR immediately before merge"
+
+PR_CHECKS_JSON='[{"name":"Tests","state":"PENDING","workflow":"Tests"}]'
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+pending_checks_rc=$?
+set -e
+[ "$pending_checks_rc" -ne 0 ] || fail "Free private fallback must reject incomplete CI"
+PR_CHECKS_JSON='[{"name":"Tests","state":"SUCCESS","workflow":"Tests"}]'
+
+PR_CHECKS_JSON='[{"name":"Tests","state":"FAILURE","workflow":"Tests"}]'
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+failed_checks_rc=$?
+set -e
+[ "$failed_checks_rc" -ne 0 ] || fail "Free private fallback must reject failed CI"
+PR_CHECKS_JSON='[{"name":"Tests","state":"SUCCESS","workflow":"Tests"}]'
+
+MOCK_PR_MERGE_STATE=DIRTY
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+dirty_pr_rc=$?
+set -e
+[ "$dirty_pr_rc" -ne 0 ] || fail "Free private fallback must require a CLEAN PR"
+MOCK_PR_MERGE_STATE=CLEAN
+
+PR_BASE_PROTECTION_ERROR=not-free-private
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+other_403_rc=$?
+set -e
+[ "$other_403_rc" -ne 0 ] || fail "only the known private Free protection 403 may use the fallback"
+PR_BASE_PROTECTION_ERROR=free-private
+
+PR_REPO_PRIVATE=false
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+public_repo_rc=$?
+set -e
+[ "$public_repo_rc" -ne 0 ] || fail "the fallback must reject a non-private repository"
+PR_REPO_PRIVATE=true
 PR_BASE_PROTECTION_AVAILABLE=true
 
 PR_BASE_PROTECTION_STRICT=false
