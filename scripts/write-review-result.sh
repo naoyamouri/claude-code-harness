@@ -13,6 +13,9 @@ BROWSER_RESULT_FILE=""
 BASE_REF=""
 PR_BASE=""
 PR_BASE_REF=""
+REVIEW_WORKFLOW=""
+REVIEW_MODE=""
+REVIEW_REPORT_FILE=""
 POSITIONAL=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,6 +67,30 @@ while [ $# -gt 0 ]; do
       PR_BASE_REF="${1#*=}"
       shift
       ;;
+    --review-workflow)
+      REVIEW_WORKFLOW="${2:-}"
+      shift 2
+      ;;
+    --review-workflow=*)
+      REVIEW_WORKFLOW="${1#*=}"
+      shift
+      ;;
+    --review-mode)
+      REVIEW_MODE="${2:-}"
+      shift 2
+      ;;
+    --review-mode=*)
+      REVIEW_MODE="${1#*=}"
+      shift
+      ;;
+    --review-report)
+      REVIEW_REPORT_FILE="${2:-}"
+      shift 2
+      ;;
+    --review-report=*)
+      REVIEW_REPORT_FILE="${1#*=}"
+      shift
+      ;;
     --)
       shift
       while [ $# -gt 0 ]; do
@@ -102,6 +129,27 @@ if [ -n "$BROWSER_RESULT_FILE" ] && [ ! -f "$BROWSER_RESULT_FILE" ]; then
   exit 4
 fi
 
+if [ -n "$REVIEW_WORKFLOW$REVIEW_MODE$REVIEW_REPORT_FILE" ]; then
+  [ "$REVIEW_WORKFLOW" = "harness-review" ] \
+    || { echo "--review-workflow must be harness-review" >&2; exit 5; }
+  [ "$REVIEW_MODE" = "code" ] \
+    || { echo "--review-mode must be code" >&2; exit 5; }
+  [ -f "$REVIEW_REPORT_FILE" ] \
+    || { echo "Review report file not found: $REVIEW_REPORT_FILE" >&2; exit 5; }
+fi
+
+REVIEW_REPORT_SHA256=""
+if [ -n "$REVIEW_WORKFLOW" ]; then
+  if command -v shasum >/dev/null 2>&1; then
+    REVIEW_REPORT_SHA256="$(shasum -a 256 "$REVIEW_REPORT_FILE" | awk '{print $1}')"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    REVIEW_REPORT_SHA256="$(sha256sum "$REVIEW_REPORT_FILE" | awk '{print $1}')"
+  else
+    echo "shasum or sha256sum is required for a PR review receipt" >&2
+    exit 5
+  fi
+fi
+
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 mkdir -p "$(dirname "$LEGACY_FILE")"
 
@@ -114,7 +162,7 @@ else
 ' > "$BROWSER_SLURP_FILE"
 fi
 
-jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE"   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   --arg commit_hash "$COMMIT_HASH"   --arg base_ref "$BASE_REF"   --arg pr_base "$PR_BASE"   --arg pr_base_ref "$PR_BASE_REF" '
+jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE"   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   --arg commit_hash "$COMMIT_HASH"   --arg base_ref "$BASE_REF"   --arg pr_base "$PR_BASE"   --arg pr_base_ref "$PR_BASE_REF"   --arg review_workflow "$REVIEW_WORKFLOW"   --arg review_mode "$REVIEW_MODE"   --arg review_report_sha256 "$REVIEW_REPORT_SHA256" '
   def as_array(v):
     if v == null then []
     elif (v | type) == "array" then v
@@ -181,6 +229,11 @@ jq -n   --slurpfile src "$INPUT_FILE"   --slurpfile browser "$BROWSER_SLURP_FILE
       base_ref: (if $base_ref == "" then ($in.base_ref // $in.review_base_ref // null) else $base_ref end),
       pr_base: (if $pr_base == "" then ($in.pr_base // null) else $pr_base end),
       pr_base_ref: (if $pr_base_ref == "" then ($in.pr_base_ref // null) else $pr_base_ref end),
+      review_provenance: (
+        if $review_workflow == "" then null
+        else {workflow: $review_workflow, mode: $review_mode, report_sha256: $review_report_sha256}
+        end
+      ),
       execution: (
         if (($in.route // null) != null) or (($in.mode // null) != null) or (($in.browser_mode // null) != null) or (($in.tool_matcher // null) != null) or (($in.required_artifacts // null) != null) or (($in.execution_instructions // null) != null) or (($browser_in.route // null) != null) or (($browser_in.mode // null) != null) or (($browser_in.browser_mode // null) != null) or (($browser_in.tool_matcher // null) != null) or (($browser_in.required_artifacts // null) != null) or (($browser_in.execution_instructions // null) != null) then
           {

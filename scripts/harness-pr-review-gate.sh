@@ -7,7 +7,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   scripts/harness-pr-review-gate.sh context
-  scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE]
+  scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE] [--review-report FILE]
   scripts/harness-pr-review-gate.sh verify --base REF
   scripts/harness-pr-review-gate.sh merge --base REF [--dry-run]
 USAGE
@@ -26,6 +26,7 @@ shift
 
 BASE_REF=""
 REVIEW_RESULT=".claude/state/review-result.json"
+REVIEW_REPORT=".claude/state/pr-review-report.md"
 DRY_RUN=0
 
 while [ "$#" -gt 0 ]; do
@@ -44,6 +45,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --review-result=*)
       REVIEW_RESULT="${1#*=}"
+      shift
+      ;;
+    --review-report)
+      REVIEW_REPORT="${2:-}"
+      shift 2
+      ;;
+    --review-report=*)
+      REVIEW_REPORT="${1#*=}"
       shift
       ;;
     --dry-run)
@@ -122,17 +131,31 @@ receipt_path() {
   printf '%s/harness/pr-review-receipts/%s.json' "$common_dir" "$1"
 }
 
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    die "shasum or sha256sum is required"
+  fi
+}
+
 record() {
   [ -f "$REVIEW_RESULT" ] || die "review result not found: $REVIEW_RESULT"
+  [ -f "$REVIEW_REPORT" ] || die "review report not found: $REVIEW_REPORT"
 
-  local schema_version verdict reviewed_base reviewed_head reviewed_pr_base reviewed_pr_base_ref receipt receipt_dir temp
+  local schema_version verdict reviewed_base reviewed_head reviewed_pr_base reviewed_pr_base_ref review_workflow review_mode review_report_sha256 receipt receipt_dir temp
   schema_version="$(jq -er '.schema_version' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no schema_version"
   [ "$schema_version" = "review-result.v1" ] \
     || die "review result must use review-result.v1 (got: $schema_version)"
   verdict="$(jq -er '.verdict' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no verdict"
-  [ "$verdict" = "APPROVE" ] || die "review verdict must be APPROVE (got: $verdict)"
+  case "$verdict" in
+    APPROVE|REQUEST_CHANGES) ;;
+    *) die "review verdict must be APPROVE or REQUEST_CHANGES (got: $verdict)" ;;
+  esac
   reviewed_base="$(jq -er '.base_ref' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no base_ref"
   [ "$reviewed_base" = "$BASE_SHA" ] \
@@ -145,6 +168,20 @@ record() {
     || die "review result has no pr_base"
   reviewed_pr_base_ref="$(jq -er '.pr_base_ref' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no pr_base_ref"
+  review_workflow="$(jq -er '.review_provenance.workflow' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no review provenance"
+  [ "$review_workflow" = "harness-review" ] \
+    || die "review result was not produced by harness-review"
+  review_mode="$(jq -er '.review_provenance.mode' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no review mode"
+  [ "$review_mode" = "code" ] \
+    || die "review result was not produced by harness-review code"
+  review_report_sha256="$(jq -er '.review_provenance.report_sha256' "$REVIEW_RESULT" 2>/dev/null)" \
+    || die "review result has no review report digest"
+  [[ "$review_report_sha256" =~ ^[0-9a-f]{64}$ ]] \
+    || die "review result has an invalid review report digest"
+  [ "$(sha256_file "$REVIEW_REPORT")" = "$review_report_sha256" ] \
+    || die "review report does not match the normalized review result"
 
   load_pr_context
   [ "$reviewed_pr_base" = "$PR_BASE" ] \
@@ -152,6 +189,11 @@ record() {
   [ "$reviewed_pr_base_ref" = "$PR_BASE_REF" ] \
     || die "review result is for PR base branch $reviewed_pr_base_ref, but live PR base branch is $PR_BASE_REF"
   receipt="$(receipt_path "$PR_NUMBER")"
+  if [ "$verdict" = "REQUEST_CHANGES" ]; then
+    rm -f "$receipt"
+    echo "Invalidated APPROVE receipt for PR #$PR_NUMBER after REQUEST_CHANGES"
+    return
+  fi
   receipt_dir="$(dirname "$receipt")"
   mkdir -p "$receipt_dir"
   temp="${receipt}.tmp.$$"
@@ -163,8 +205,11 @@ record() {
     --arg pr_base_ref "$PR_BASE_REF" \
     --arg head "$HEAD_SHA" \
     --arg verdict "$verdict" \
+    --arg review_workflow "$review_workflow" \
+    --arg review_mode "$review_mode" \
+    --arg review_report_sha256 "$review_report_sha256" \
     --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, pr_base: $pr_base, pr_base_ref: $pr_base_ref, head: $head, verdict: $verdict, reviewed_at: $reviewed_at}' \
+    '{schema_version: $schema_version, pr_number: $pr_number, base_ref: $base_ref, pr_base: $pr_base, pr_base_ref: $pr_base_ref, head: $head, verdict: $verdict, review_workflow: $review_workflow, review_mode: $review_mode, review_report_sha256: $review_report_sha256, reviewed_at: $reviewed_at}' \
     > "$temp"
   mv "$temp" "$receipt"
   echo "Recorded APPROVE receipt for PR #$PR_NUMBER"
@@ -188,6 +233,9 @@ verify() {
       and .pr_base_ref == $pr_base_ref
       and .head == $head
       and .verdict == "APPROVE"
+      and .review_workflow == "harness-review"
+      and .review_mode == "code"
+      and (.review_report_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
       and (.reviewed_at | type == "string")' \
     "$receipt" >/dev/null \
     || die "receipt does not match current PR, base, or live HEAD"

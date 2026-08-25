@@ -92,7 +92,9 @@ build_body() {
   fi
 
   body+="$(render_finding_lines "$merged_file" 'accepted_findings' 'Accepted findings')"
+  body+=$'\n\n'
   body+="$(render_finding_lines "$merged_file" 'rejected_findings' 'Rejected findings')"
+  body+=$'\n\n'
 
   body+="## Release preflight warnings\n\n"
   local warnings
@@ -266,6 +268,18 @@ ensure_attached_head() {
   fi
 }
 
+origin_repo() {
+  local url
+  url="$(git remote get-url origin 2>/dev/null)" || return 1
+  case "$url" in
+    https://github.com/*|http://github.com/*) url="${url#*github.com/}" ;;
+    git@github.com:*) url="${url#git@github.com:}" ;;
+    ssh://git@github.com/*) url="${url#ssh://git@github.com/}" ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "${url%.git}"
+}
+
 confirm_push() {
   if [ "${YES:-0}" -eq 1 ]; then
     return 0
@@ -326,13 +340,19 @@ cmd_push() {
     exit 2
   fi
 
-  local title base_ref head_ref body
+  local title base_ref head_ref body repo
+  local -a repo_args=()
   title="$(json_get "$payload_file" '.title')"
   base_ref="$(json_get "$payload_file" '.base_ref')"
   head_ref="$(json_get "$payload_file" '.head_ref')"
   body="$(json_get "$payload_file" '.body')"
+  case "$base_ref" in
+    origin/*) base_ref="${base_ref#origin/}" ;;
+  esac
 
-  gh pr create \
+  repo="$(origin_repo || true)"
+  if [ -n "$repo" ]; then repo_args=(--repo "$repo"); fi
+  gh pr create "${repo_args[@]}" \
     --base "$base_ref" \
     --head "$head_ref" \
     --title "$title" \

@@ -90,8 +90,15 @@ chmod +x "$BIN/gh"
 
 REVIEW_INPUT="$REPO/review-output.json"
 REVIEW_RESULT="$REPO/review-result.json"
+REVIEW_REPORT="$REPO/.claude/state/pr-review-report.md"
+mkdir -p "$(dirname "$REVIEW_REPORT")"
+printf '# PR review\n' > "$REVIEW_REPORT"
 
 write_result() {
+  (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE" --pr-base "$PR_BASE_SHA" --pr-base-ref "$PR_BASE_REF" --review-workflow harness-review --review-mode code --review-report "$REVIEW_REPORT")
+}
+
+write_unprovenanced_result() {
   (cd "$REPO" && bash "$ROOT_DIR/scripts/write-review-result.sh" "$REVIEW_INPUT" "$HEAD_SHA" "$REVIEW_RESULT" --base-ref "$BASE" --pr-base "$PR_BASE_SHA" --pr-base-ref "$PR_BASE_REF")
 }
 
@@ -133,6 +140,10 @@ for workflow_file in \
     || fail "workflow does not preserve the human-readable PR review report: $workflow_file"
   grep -Fq -- '--report .claude/state/pr-review-report.md' "$workflow_file" \
     || fail "workflow does not direct the reviewer to write the human-readable report: $workflow_file"
+  grep -Fq -- '--review-workflow harness-review --review-mode code' "$workflow_file" \
+    || fail "workflow does not record harness-review provenance: $workflow_file"
+  grep -Fq -- '--review-report .claude/state/pr-review-report.md' "$workflow_file" \
+    || fail "workflow does not bind the receipt to the human-readable report: $workflow_file"
   grep -Fq -- '--pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"' "$workflow_file" \
     || fail "workflow does not record the live PR base in its review artifact: $workflow_file"
 done
@@ -146,14 +157,31 @@ no_pr_rc=$?
 set -e
 [ "$no_pr_rc" -ne 0 ] || fail "record must fail without a PR"
 
-# REQUEST_CHANGESはreceiptにできない。
+# REQUEST_CHANGESはreceiptを発行せず、成功として既存receiptを無効化する。
 printf '{"verdict":"REQUEST_CHANGES"}\n' > "$REVIEW_INPUT"
 write_result
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
+[ ! -f "$REPO/.git/harness/pr-review-receipts/42.json" ] \
+  || fail "REQUEST_CHANGES must not leave a receipt"
+
+# workflow を指定しない generic reviewer 出力ではreceiptを発行しない。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_unprovenanced_result
 set +e
 (cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
-request_changes_rc=$?
+unprovenanced_rc=$?
 set -e
-[ "$request_changes_rc" -ne 0 ] || fail "record must reject REQUEST_CHANGES"
+[ "$unprovenanced_rc" -ne 0 ] || fail "record must reject a review result without harness-review provenance"
+
+# report と正規化時のdigestが一致しなければreceiptを発行しない。
+write_result
+printf 'tampered\n' >> "$REVIEW_REPORT"
+set +e
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
+tampered_report_rc=$?
+set -e
+[ "$tampered_report_rc" -ne 0 ] || fail "record must reject a changed review report"
+printf '# PR review\n' > "$REVIEW_REPORT"
 
 # APPROVEのcurrent HEADだけをrecordし、必要な値を残す。
 printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
@@ -168,10 +196,29 @@ jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg pr_base_ref "$PR_BAS
   and .pr_base_ref == $pr_base_ref
   and .head == $head
   and .verdict == "APPROVE"
+  and .review_workflow == "harness-review"
+  and .review_mode == "code"
+  and (.review_report_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.reviewed_at | type == "string")
 ' "$RECEIPT" >/dev/null || fail "receipt fields are incomplete"
 
 (cd "$REPO" && run_gate verify --base "$BASE")
+
+# 同一HEADの後続REQUEST_CHANGESは、古いAPPROVE receiptを無効化する。
+printf '{"verdict":"REQUEST_CHANGES"}\n' > "$REVIEW_INPUT"
+write_result
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
+[ ! -f "$RECEIPT" ] || fail "REQUEST_CHANGES must invalidate an existing APPROVE receipt"
+set +e
+(cd "$REPO" && run_gate verify --base "$BASE") >/dev/null 2>&1
+invalidated_rc=$?
+set -e
+[ "$invalidated_rc" -ne 0 ] || fail "verify must reject an invalidated receipt"
+
+# 後続のAPPROVEでのみreceiptを再発行できる。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 
 # upstream remote が gh の既定になっていても、origin のPRだけを操作する。
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate verify --base "$BASE")

@@ -824,13 +824,15 @@ harness-review code --base "$BASE_REF" --no-commit \
 bash "$WRITE_REVIEW_RESULT" \
   .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
   .claude/state/review-result.json --base-ref "$BASE_REF" \
-  --pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"
+  --pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF" \
+  --review-workflow harness-review --review-mode code \
+  --review-report .claude/state/pr-review-report.md
 bash "$PR_REVIEW_GATE" record --base "$BASE_REF"
 # agent による merge は raw gh pr merge を使わない:
 bash "$PR_REVIEW_GATE" merge --base "$BASE_REF"
 ```
 
-`record` はoriginのcurrent PR、review対象base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、live PRのbase名/SHA/head、`APPROVE`を照合する。`merge`はoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければmergeを止める。ただしGitHub Free privateの既知403だけは、merge直前にlive PRを再照合してからhead pin付きで実行し、GitHubが`MERGED`またはmerge queueの`QUEUED`を返すことまで確認する。この経路はbase更新とmergeの競合を原子的には防げない。`strict: false`、認証・通信など他のAPIエラー、`REQUEST_CHANGES`、receipt不在、またはreview後のlocal/remote push・base名/SHA更新では従来どおり再レビューまたは拒否する。GitHub Web UIの人手mergeは対象外。
+`record` はoriginのcurrent PR、review対象base、local HEAD、review artifactの`pr_base` / `pr_base_ref`、`harness-review code` のworkflow/mode/report digest、live PRのbase名/SHA/headを照合する。`APPROVE` はreceiptを保存し、同一 HEAD の後続 `REQUEST_CHANGES` は既存receiptを無効化する。generic `reviewer` の出力や report を伴わない正規化JSONではreceiptを発行しない。`merge`はoriginとreceipt headを`--match-head-commit`で固定し、対象baseに「Require branches to be up to date before merging」（required status checksの`strict: true`）がなければmergeを止める。ただしGitHub Free privateの既知403だけは、merge直前にlive PRを再照合してからhead pin付きで実行し、GitHubが`MERGED`またはmerge queueの`QUEUED`を返すことまで確認する。この経路はbase更新とmergeの競合を原子的には防げない。`strict: false`、認証・通信など他のAPIエラー、receipt不在、またはreview後のlocal/remote push・base名/SHA更新では従来どおり再レビューまたは拒否する。GitHub Web UIの人手mergeは対象外。
 
 ## Completion Report Output Contract
 
