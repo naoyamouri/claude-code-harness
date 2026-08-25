@@ -106,6 +106,16 @@ acceptance bar is met.
 
 PR closeout belongs to `harness-work`, not `harness-review`.
 
+Workers may commit only to their isolated topic branch. A Lead integrates the
+reviewed result into the current topic branch and opens or updates its PR;
+neither a worker nor a Lead cherry-picks to a default branch. The only default
+branch write is GitHub's PR merge after the current formal-review receipt,
+required CI, and any applicable preview or human acceptance have passed.
+After GitHub confirms the merge, `harness-sync` reconciles the ledger and one
+separate C-lane marker PR may write `cc:done`. Waiting on CI, preview, access,
+or a human decision is `cc:blocked` with an explicit resume condition, never
+`cc:done` or a success report.
+
 An agent merge resolves the current PR through `origin`, and must fail closed
 unless the review receipt head equals both local `HEAD` and GitHub's live PR
 head, its recorded `pr_base` equals GitHub's live `baseRefOid`, and its

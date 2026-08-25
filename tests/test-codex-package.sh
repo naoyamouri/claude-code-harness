@@ -258,8 +258,7 @@ set -euo pipefail
 
 if [ "${1:-}" = "clone" ]; then
   destination="${!#}"
-  mkdir -p "$destination"
-  tar -C "${HARNESS_SETUP_TEST_SOURCE}" --exclude=.git -cf - . | tar -C "$destination" -xf -
+  ln -s "${HARNESS_SETUP_TEST_SOURCE}" "$destination"
   exit 0
 fi
 

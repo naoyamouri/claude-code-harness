@@ -39,12 +39,13 @@ PM ↔ Impl 運用で使用する標準マーカー:
 |---------|------|-----------|
 | `pm:requested` / `pm:依頼中` | PM がタスクを起票し、Impl へ依頼中 | PM |
 | `cc:todo` / `cc:TODO` | Impl の未着手タスク | Impl |
-| `cc:wip` / `cc:WIP` | Impl（Claude Code）が着手中 | Impl |
-| `cc:done` / `cc:完了` | Impl が作業完了し、PM の確認待ち | Impl |
+| `cc:wip` / `cc:WIP` | Impl（Claude Code）が実作業中 | Impl |
+| `cc:blocked` | CI・Preview・人間確認・権限などの外部待ち。再開条件を DoD に残す | Impl |
+| `cc:done` / `cc:完了` | GitHub merge と harness-sync 後、marker PR で完了を記録 | Impl |
 | `pm:approved` / `pm:確認済` | PM が最終確認を完了 | PM |
 | `cc:withdrawn` | Impl が判断で取り下げたタスク（superseded / 別タスクで吸収）。breezing は cc:withdrawn を pickup しない | Impl |
 
-**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:done → pm:approved`。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
+**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:blocked（待機時のみ）→ cc:done → pm:approved`。`cc:done` は worker commit や PR 作成だけでは付けず、current review receipt・required CI・GitHub merge・harness-sync の後に C lane marker PR が記録する。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
 
 **後方互換**: `cursor:依頼中` / `cursor:確認済` は `pm:依頼中` / `pm:確認済` の同義として扱う（Cursor PM 運用時の表記）。
 

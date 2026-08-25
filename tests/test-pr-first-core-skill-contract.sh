@@ -24,5 +24,8 @@ done
 
 grep -Fq 'GitHub merge receipt' "$ROOT/skills/harness-sync/SKILL.md"
 grep -Fq 'cc:blocked' "$ROOT/skills/harness-plan/SKILL.md"
+grep -Fq 'neither a worker nor a Lead cherry-picks to a default branch' "$ROOT/docs/spec/workflow-review-and-release.md"
+grep -Fq 'cc:blocked` with an explicit resume condition' "$ROOT/docs/spec/workflow-review-and-release.md"
+grep -Fq '`cc:done` is GitHub merge and harness-sync' "$ROOT/Plans.md"
 
 echo 'pr-first core skill contract ok'
