@@ -109,7 +109,7 @@ bash -c '
 
 判定:
 - `CURSOR_AGENT=NOT_INSTALLED` → `ERROR: cursor-agent not found (exit 3 expected from companion). Install via setup-cursor.sh.` を出し終了。
-- `BRANCH` が `main` / `master` → `WARN: on protected branch — cherry-pick target is HEAD of this branch. Confirm intent or switch.` を出し継続。
+- `BRANCH` が `main` / `master` → `ERROR: protected branch cannot be a Cursor worker target. Create an isolated topic worktree.` を出して終了。
 
 ## Step 3 — plugin root + backend + model resolve (1 bash)
 
@@ -240,9 +240,9 @@ Constraints:
 
 ## Step 6 — Lead diff review
 
-worktree 内で Composer が作成した変更を読み、目視レビュー + contract grep の二段ゲートを通す (`harness-work` 「Lead の cherry-pick 前ゲート」と同じ契約)。
+worktree 内で Composer が作成した変更を読み、目視レビュー + contract grep の二段ゲートを通す（topic branch PR の前段）。
 
-**注意 (Issue #193 §1)**: Cursor Composer は `--write` でファイル編集を行うが **commit は作らない**ことがある。worktree が dirty なまま放置すると Step 7 の cherry-pick 対象から漏れ、ユーザー視点で「完了したのに main に何も入らない」状態になる。本 Step 冒頭で dirty なら、既存 commit がある場合は amend、commit がない場合は Lead 側で 1 commit にまとめる。
+**注意 (Issue #193 §1)**: Cursor Composer は `--write` でファイル編集を行うが **commit は作らない**ことがある。worktree が dirty のままだと Step 7 の PR に差分が載らない。本 Step 冒頭で dirty なら、既存 commit がある場合は amend、commit がない場合は Lead 側で 1 commit にまとめる。
 
 ```bash
 bash -c '
@@ -271,7 +271,7 @@ bash -c '
 '
 ```
 
-`TASK_SUMMARY` は引数 task の先頭 60 文字以内に圧縮した文字列を Lead が事前に export しておく (例: `TASK_SUMMARY="Add login form validation"`)。未設定なら fallback メッセージ `cursor-do delegated change` を使う。`--no-verify` を付けるのは worktree 内の編集を「Lead レビュー前の中間 commit」として扱うため (cherry-pick 後の main commit で R01-R13 と pre-commit hook を通す)。
+`TASK_SUMMARY` は引数 task の先頭 60 文字以内に圧縮した文字列を Lead が事前に export しておく (例: `TASK_SUMMARY="Add login form validation"`)。未設定なら fallback メッセージ `cursor-do delegated change` を使う。`--no-verify` を付けるのは worktree 内の編集を「Lead レビュー前の中間 commit」として扱うため。topic branch の commit も通常の guardrail を通し、default branch への取り込みは PR merge だけにする。
 
 Lead は diff 全文を Read し、以下を確認する:
 
@@ -292,7 +292,7 @@ Lead は diff 全文を Read し、以下を確認する:
 
 ## Step 7 — topic branch を push して PR を作成
 
-Composer の commit は worker worktree に留める。Lead は main を checkout/cherry-pick せず、review 済み branch を push して PR を作る。PR を作成した時点ではタスクは `cc:WIP [PR #<number>: review/CI pending]` のままにする。
+Composer の commit は worker worktree に留める。Lead は default branch を直接操作せず、review 済み branch を push して PR を作る。PR を作成した時点ではタスクは `cc:WIP [PR #<number>: review/CI pending]` のままにする。
 
 ```bash
 bash -c '

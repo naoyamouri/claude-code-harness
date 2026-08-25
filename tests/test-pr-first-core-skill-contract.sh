@@ -26,6 +26,13 @@ grep -Fq 'GitHub merge receipt' "$ROOT/skills/harness-sync/SKILL.md"
 grep -Fq 'cc:blocked' "$ROOT/skills/harness-plan/SKILL.md"
 grep -Fq 'neither a worker nor a Lead cherry-picks to a default branch' "$ROOT/docs/spec/workflow-review-and-release.md"
 grep -Fq 'cc:blocked` with an explicit resume condition' "$ROOT/docs/spec/workflow-review-and-release.md"
-grep -Fq '`cc:done` is GitHub merge and harness-sync' "$ROOT/Plans.md"
+grep -Fq '`cc:done` は GitHub merge と `harness-sync` が成功した後' "$ROOT/Plans.md"
+
+for reference in \
+  skills/cursor-do/SKILL.md \
+  skills/cursor-do/references/cursor-cli-only.md \
+  skills/breezing/references/lean-path-detail.md; do
+  ! grep -Fq 'cherry-pick' "$ROOT/$reference"
+done
 
 echo 'pr-first core skill contract ok'

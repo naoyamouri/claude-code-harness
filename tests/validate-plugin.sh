@@ -1429,6 +1429,16 @@ else
 fi
 
 echo ""
+echo "24. PR-first workflow contract (Phase 144)"
+echo "----------------------------------------"
+
+if bash "$PLUGIN_ROOT/tests/test-pr-first-core-skill-contract.sh" > /dev/null 2>&1; then
+    pass_test "core skills and canonical references keep default-branch writes behind PR merge"
+else
+    fail_test "PR-first workflow contract failed — 'bash tests/test-pr-first-core-skill-contract.sh' で詳細確認"
+fi
+
+echo ""
 echo "=========================================="
 echo "テスト結果サマリー"
 echo "=========================================="
