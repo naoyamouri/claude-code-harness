@@ -56,8 +56,12 @@ grep -q "Do not use the Worker-only SendMessage/self_review loop for cursor/code
   || fail "shared harness-work: companion-result.v1 must avoid Worker-only SendMessage/self_review loop"
 grep -q 'git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")' "$SHARED_WORK_SKILL" \
   || fail "shared harness-work: companion review loop must review the full baseCommit..HEAD range"
-grep -q 'git cherry-pick --no-commit {worker_result.baseCommit}..{worker_result.commit}' "$SHARED_WORK_SKILL" \
-  || fail "shared harness-work: companion approve path must cherry-pick the full reviewed range"
+grep -Fq 'git -C "$WORKTREE_PATH" diff "$BASE_REF..HEAD"' "$SHARED_WORK_SKILL" \
+  || fail "shared harness-work: companion approval must retain the full reviewed range for the PR"
+grep -Fq 'git -C "$WORKTREE_PATH" push -u origin "$BRANCH"' "$SHARED_WORK_SKILL" \
+  || fail "shared harness-work: companion approval must push its topic branch"
+grep -Fq 'gh pr create --base "$(git symbolic-ref refs/remotes/origin/HEAD | sed '\''s|refs/remotes/origin/||'\'')" --head "$BRANCH"' "$SHARED_WORK_SKILL" \
+  || fail "shared harness-work: companion approval must create a PR"
 grep -q "各 task の実装 executor は Backend-resolved executor path に従う" "$WORK_SKILL" \
   || fail "harness-work: Parallel mode must use the same backend resolver per task"
 
@@ -108,8 +112,8 @@ if grep -q 'latest_commit == previous_commit and git("-C", worktree_path, "statu
 fi
 grep -q "retry produced no new commit" "$BREEZING_SKILL" \
   || fail "breezing: non-claude retry loop must rerun companion and detect no-progress"
-grep -q 'cherry-pick --no-commit {TASK_BASE_REF}..{commit_hash}' "$BREEZING_SKILL" \
-  || fail "breezing: approve path must cherry-pick the full companion commit range"
+grep -Fq 'topic branch を push → PR 作成。merge receipt 後に harness-sync の marker PR で完了記録' "$BREEZING_SKILL" \
+  || fail "breezing: approval must use a topic PR and defer completion until the merge receipt"
 if grep -q -- "--default cursor" "$BREEZING_SKILL" "$WORK_SKILL"; then
   fail "Codex shipped skills must not hard-code cursor as call-site default"
 fi
@@ -147,8 +151,10 @@ grep -q "retry produced no new commit" "$WORK_SKILL" \
 range_review_count="$(grep -F -c 'git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")' "$WORK_SKILL")"
 [ "$range_review_count" -ge 2 ] \
   || fail "harness-work: initial and retry reviews must cover the full companion commit range"
-grep -q 'cherry-pick --no-commit {worker_result.baseCommit}..{latest_commit}' "$WORK_SKILL" \
-  || fail "harness-work: approve path must cherry-pick the full companion commit range"
+grep -Fq 'git -C "$WORKTREE_PATH" push -u origin "$WORKTREE_BRANCH"' "$WORK_SKILL" \
+  || fail "harness-work: Codex approval must push its topic branch"
+grep -Fq 'gh pr create --base "${BASE_BRANCH:-main}" --head "$WORKTREE_BRANCH" --fill' "$WORK_SKILL" \
+  || fail "harness-work: Codex approval must create a PR"
 
 # 5. Default ON must affect review as an advisory cursor second-opinion, while
 # primary verdict remains on the brain.
@@ -221,13 +227,13 @@ grep -q 'bash "${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh" task' "$CURSO
 grep -q 'bash "${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh" task' "$CURSOR_ASK_SKILL" \
   || fail "cursor:ask: cursor companion must be called through HARNESS_PLUGIN_ROOT"
 grep -q 'git rev-list --count "${BASE_REF}..HEAD"' "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: must count the reviewed range before cherry-pick"
-grep -q "expected exactly one" "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: must reject multi-commit Cursor results before target mutation"
+  || fail "cursor:do: must count the reviewed range before creating a PR"
+grep -Fq '[ "${COMMIT_COUNT}" -gt 0 ] || { echo "ERROR: no commits for PR"; exit 1; }' "$CURSOR_DO_SKILL" \
+  || fail "cursor:do: must reject an empty reviewed range before creating a PR"
 grep -q 'commit --amend --no-edit --no-verify' "$CURSOR_DO_SKILL" \
   || fail "cursor:do: must amend dirty Cursor output into an existing Cursor commit before counting commits"
 grep -q '==AUTO_AMENDED==' "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: dirty commit-plus-worktree output must be visibly folded before cherry-pick"
+  || fail "cursor:do: dirty commit-plus-worktree output must be visibly folded before PR creation"
 grep -q 'HOME/.local/bin/cursor-agent' "$CURSOR_DO_SKILL" \
   || fail "cursor:do: precheck must honor cursor-companion fallback cursor-agent path"
 grep -q '\[ ! -f "${WT_DIR}/tests/test-support-claim-wording.sh" \] || (cd "${WT_DIR}" && bash tests/test-support-claim-wording.sh)' "$CURSOR_DO_SKILL" \
@@ -236,23 +242,15 @@ grep -q '\[ ! -f "${WT_DIR}/scripts/ci/check-consistency.sh" \] || (cd "${WT_DIR
   || fail "cursor:do: consistency gate must run inside the candidate worktree"
 grep -q '\[ ! -f "${WT_DIR}/tests/validate-plugin.sh" \] || (cd "${WT_DIR}" && bash tests/validate-plugin.sh)' "$CURSOR_DO_SKILL" \
   || fail "cursor:do: plugin validation gate must run inside the candidate worktree"
-grep -q 'git commit --amend --no-edit' "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: Plans.md marker update must be committed into the cherry-pick commit"
-grep -q "Plans.md has pre-existing local edits" "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: must refuse to amend pre-existing Plans.md edits into the cursor commit"
-grep -q 'git diff --cached --quiet -- Plans.md' "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: must check staged Plans.md edits before marker amend"
-plans_guard_line="$(grep -n 'Plans.md has pre-existing local edits' "$CURSOR_DO_SKILL" | head -1 | cut -d: -f1)"
-cherry_pick_line="$(grep -n 'git cherry-pick "${SHA}"' "$CURSOR_DO_SKILL" | head -1 | cut -d: -f1)"
-[ "$plans_guard_line" -lt "$cherry_pick_line" ] \
-  || fail "cursor:do: Plans.md pre-existing edit guard must run before cherry-pick mutates the target branch"
-grep -q "marker-only diff" "$CURSOR_DO_SKILL" \
-  || fail "cursor:do: amend block must be scoped to the marker-only diff"
+grep -Fq 'gh pr create --base "${BASE_BRANCH}" --head "${WT_BRANCH}" --fill' "$CURSOR_DO_SKILL" \
+  || fail "cursor:do: reviewed worktree must be submitted as a topic-branch PR"
+grep -Fq 'Formal review、required CI、GitHub merge が終わるまで main と completion marker を変更しない' "$CURSOR_DO_SKILL" \
+  || fail "cursor:do: completion must wait for formal review, CI, and merge"
 if grep -q 'test-support-claim-wording.sh 2>/dev/null || true\|check-consistency.sh 2>/dev/null || true\|validate-plugin.sh 2>/dev/null || true' "$CURSOR_DO_SKILL"; then
   fail "cursor:do: contract-grep gates must not discard failures"
 fi
-if grep -q 'for SHA in ${COMMITS}' "$CURSOR_DO_SKILL"; then
-  fail "cursor:do: must not cherry-pick Cursor commits one SHA at a time"
+if grep -q 'cherry-pick' "$CURSOR_DO_SKILL"; then
+  fail "cursor:do: must not integrate Cursor commits directly"
 fi
 if grep -q 'HARNESS_PLUGIN_ROOT:-\.' "$CURSOR_DO_SKILL" "$CURSOR_ASK_SKILL"; then
   fail "cursor:do/ask: helper calls must not fall back to target-repo relative scripts"
@@ -304,9 +302,10 @@ grep -q 'passthrough+=(--cd "${2:-}")' "${ROOT}/scripts/codex-companion.sh" \
   || fail "codex-companion: structured exec must normalize --cwd to codex exec --cd"
 grep -Fq -- '--cwd=*|--cd=*' "${ROOT}/scripts/codex-companion.sh" \
   || fail "codex-companion: effort parser must handle inline --cwd/--cd values without consuming the prompt"
-grep -q 'WORKTREE_HEAD="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"' "$SHARED_WORK_SKILL" \
-  || fail "shared harness-work: Codex mode must capture the delegated worktree tip"
-grep -q 'git cherry-pick --no-commit "$BASE_REF..$WORKTREE_HEAD"' "$SHARED_WORK_SKILL" \
-  || fail "shared harness-work: Codex mode must cherry-pick the reviewed worktree range"
+grep -Fq 'BRANCH="$(git -C "$WORKTREE_PATH" branch --show-current)"' "$SHARED_WORK_SKILL" \
+  || fail "shared harness-work: Codex mode must retain the delegated worktree branch for its PR"
+if grep -q 'cherry-pick' "$SHARED_WORK_SKILL" "$WORK_SKILL" "$BREEZING_SKILL"; then
+  fail "Codex execution paths must not integrate reviewed worktree commits directly"
+fi
 
 echo "ok"

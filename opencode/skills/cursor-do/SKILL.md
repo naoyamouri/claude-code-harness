@@ -20,7 +20,7 @@ description: "Delegate a single write task to Cursor Composer in an isolated wor
 これから:
 1. pre-check (branch / cursor-agent) → 専用 worktree 作成
 2. composer に実装委譲 (--write)
-3. diff レビュー → cherry-pick → Plans.md 更新
+3. diff レビュー → topic branch を push → PR 作成
 ```
 
 banner 1 行 (`🚀 cursor / composer-2.5-fast / <branch> / <task>`) + 計画 2-4 行。1 秒以内に出し、即 Step 1 へ。
@@ -28,7 +28,7 @@ banner 1 行 (`🚀 cursor / composer-2.5-fast / <branch> / <task>`) + 計画 2-
 ### 進捗報告は出してよい (見やすい範囲で)
 
 - 各ステップの開始・完了を 1 行ステータスで (`✓ worktree 作成: .claude/worktrees/cursor-do-...`)
-- pre-check / resolve の要点、cherry-pick した SHA
+- pre-check / resolve の要点、作成した PR
 - なぜこの分岐を取るかの理由を 1 行で
 
 ### 禁止 (= 冗長さ)
@@ -48,7 +48,7 @@ banner 1 行 (`🚀 cursor / composer-2.5-fast / <branch> / <task>`) + 計画 2-
 正常例 (簡潔 + 計画明示):
 ```
 🚀 cursor / composer-2.5-fast / feat/foo-bar / Add login form validation
-これから: worktree 作成 → composer に実装委譲 → diff レビュー → cherry-pick
+これから: worktree 作成 → composer に実装委譲 → diff レビュー → PR 作成
 ```
 
 ## Step 1 — banner + plan を出し切る (1 秒以内)
