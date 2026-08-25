@@ -96,6 +96,10 @@ harness codex-loop stop
 
 ## どう動くか
 
+### PR-first completion contract
+
+各 ready batch は worker の topic branch で終える。default branch への反映は **topic branch → PR → formal review → CI → GitHub merge** のみで、loop は main を cherry-pick しない。review/CI/権限/人間判断の待機は `cc:blocked [reason]`、GitHub merge receipt 後に `harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録する。
+
 1. project root の `.claude/state/codex-loop/` に Harness loop の実行状態を書き出す
 2. 受け取った selection を Plans.md から正規化する
 3. Plans.md から Depends が満たされた `cc:TODO` / `cc:WIP` を集め、ready batch を作る

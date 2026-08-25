@@ -117,4 +117,4 @@ In Breezing, the **Lead** runs the review loop:
 2. Lead reviews via Codex exec (preferred) or the Reviewer agent (fallback).
 3. `REQUEST_CHANGES` → Lead sends fix instructions via `SendMessage`; Worker amends.
 4. Re-review after the fix (up to `MAX_REVIEWS`).
-5. `APPROVE` → Lead cherry-picks onto trunk and marks `Plans.md` `cc:完了 [{hash}]`.
+5. `APPROVE` → Lead pushes the topic branch and creates/updates a PR. Only formal review, required CI, and the GitHub merge receipt permit `harness-sync` to make a separate marker PR for `cc:完了 [merge-sha]`; waits are `cc:blocked [reason]`.

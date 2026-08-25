@@ -138,8 +138,8 @@ wake-up
   ※ 詳細は flow.md 参照
   │
   ▼
-[Step 5.6] APPROVE → main に cherry-pick / REQUEST_CHANGES → 修正ループ（contract の max_iterations 回、デフォルト 3）
-  APPROVE: git cherry-pick → Plans.md を cc:完了 [{hash}] に更新 → feature branch 削除
+[Step 5.6] APPROVE → topic branch を push して PR 作成 / REQUEST_CHANGES → 修正ループ（contract の max_iterations 回、デフォルト 3）
+  APPROVE 後は **topic branch → PR → formal review → CI → GitHub merge**。待機・失敗・人間判断待ちは `cc:blocked [reason]`、merge receipt 後に `harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録
   REQUEST_CHANGES x MAX_REVIEWS 後も否決: エスカレーション
   ※ 詳細は flow.md 参照
   │

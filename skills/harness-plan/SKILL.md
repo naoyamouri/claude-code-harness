@@ -292,7 +292,7 @@ product-impacting な追加では、上の「spec.md / Plans.md 二正本チェ�
 |---------|---------|
 | `WIP` | `cc:WIP` |
 | `完了` / `done` | `cc:完了` |
-| `blocked` | `blocked` |
+| `blocked` | `cc:blocked [reason]` |
 | `TODO` | `cc:TODO` |
 
 ### sync — 進捗同期
@@ -382,9 +382,11 @@ Plans.md の task には、TDD 判定を明示するタグを内容または DoD
 | `pm:依頼中` | PM から依頼済み |
 | `cc:TODO` | 未着手 |
 | `cc:WIP` | 作業中 |
-| `cc:完了` | Worker 作業完了 |
+| `cc:完了 [merge-sha]` | GitHub merge receipt を `harness-sync` が確認し、別の marker PR で記録済み |
 | `pm:確認済` | PM レビュー完了 |
-| `blocked` | ブロック中（理由を必ず記載） |
+| `cc:blocked [reason]` | CI・review・権限・人間判断などの待機中（理由を必ず記載） |
+
+完了は **topic branch → PR → formal review → CI → GitHub merge** の後だけにする。worker の commit、PR 作成、review/CI 待ちでは `cc:WIP` または `cc:blocked [reason]` を使い、merge receipt を確認した `harness-sync` が code change と分離した **marker PR** で `cc:完了 [merge-sha]` を更新する。
 
 ### 計画確定後の導線（非エンジニア向け計画概要）
 

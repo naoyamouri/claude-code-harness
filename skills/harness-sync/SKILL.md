@@ -96,7 +96,7 @@ PROJECT=$(tail -1 .claude/state/agent-trace.jsonl 2>/dev/null | \
 |------------|----------|
 | 完了済みなのに `cc:WIP` | コミット履歴 vs マーカー |
 | 着手済みなのに `cc:TODO` | 変更ファイル vs マーカー |
-| `cc:完了` なのに未コミット | git status vs マーカー |
+| `cc:完了` なのに GitHub merge receipt なし | `gh pr view --json state,mergeCommit` vs マーカー |
 
 ## Step 3: Plans.md 更新提案
 
@@ -107,13 +107,18 @@ Plans.md 更新が必要です
 
 | Task | 現在 | 変更後 | 理由 |
 |------|------|--------|------|
-| XX   | cc:WIP | cc:完了 | コミット済み |
+| XX   | cc:WIP | cc:完了 | GitHub merge receipt 確認済み。marker PR を作成 |
+| YY   | cc:WIP | cc:blocked [waiting for CI] | required CI / human decision 待ち |
 | YY   | cc:TODO | cc:WIP | ファイル編集済み |
 
 更新しますか？ (yes / no)
 ```
 
 ## Step 4: 進捗サマリー出力
+
+### PR-first completion rule
+
+`cc:完了` は worker commit や local cherry-pick ではなく **GitHub merge receipt** が確認できた時だけ付ける。実装 PR の merge 後に `harness-sync` を実行し、Plans.md の marker 変更は code PR と分離した **marker PR** として作成する。CI・review・権限・人間判断を待つ間は `cc:blocked [reason]` を維持する。
 
 ```markdown
 ## 進捗サマリー

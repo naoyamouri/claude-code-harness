@@ -17,15 +17,16 @@ and validation.
    the skip reason in the task context or sprint contract.
 6. Resolve helper scripts through `HARNESS_PLUGIN_ROOT`, not the caller
    project's `scripts/` directory.
-7. Mark only the selected task as `cc:WIP`.
+7. Mark only the selected task as `cc:WIP`; use `cc:blocked [reason]` for CI, review, permission, or human-decision waits.
 8. Generate and approve a sprint contract before implementation when the task
    needs reviewable DoD checks.
 
 ## Solo
 
 Use for one task. The parent session implements directly, validates, runs the
-review loop, commits unless `--no-commit` is set, and marks `Plans.md`
-`cc:完了 [hash]`.
+review loop, and commits unless `--no-commit` is set. Completion is
+**topic branch → PR → formal review → CI → GitHub merge**; `harness-sync`
+records `cc:完了 [merge-sha]` in a separate marker PR only after the merge receipt.
 
 ## Parallel
 
@@ -100,9 +101,10 @@ Contract」for the full field list.
 12. Run the automatic review stage — see [review-loop.md](review-loop.md). When `sprint-contract.json`'s `reviewer_profile` is `runtime`, also run `bash "${HARNESS_PLUGIN_ROOT}/scripts/run-contract-review-checks.sh"`.
 13. Normalize the review artifact with `bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh"` (pass `--browser-result` for the browser profile; `browser_verdict == PENDING_BROWSER` keeps the static verdict).
 14. `git commit` (skip with `--no-commit`).
-15. Mark `cc:完了 [hash]`, clear the presence declaration, record the short commit hash.
-16. Render the rich completion report — see the `Completion Report Output Contract` in the main `SKILL.md` and [completion-report.md](completion-report.md).
-17. On test/CI failure after completion, see [failure-reticketing.md](failure-reticketing.md).
+15. Push the topic branch and create/update its PR. Required CI, formal review, and GitHub merge happen before completion; set `cc:blocked [reason]` while waiting.
+16. After the GitHub merge receipt, clear presence, run `harness-sync`, and create a separate marker PR for `cc:完了 [merge-sha]`.
+17. Render the rich completion report — see the `Completion Report Output Contract` in the main `SKILL.md` and [completion-report.md](completion-report.md).
+18. On test/CI failure after completion, see [failure-reticketing.md](failure-reticketing.md).
 
 ## Breezing — Phase Detail
 
@@ -178,10 +180,11 @@ for task in execution_order:
         review_count++
 
     if verdict == "APPROVE":
-        cherry-pick latest_commit onto trunk (skip if already an ancestor — re-entry guard)
-        remove the worker's worktree; delete the feature branch
-        Plans.md: task.status = "cc:完了 [{hash}]"
-        bash "${HARNESS_PLUGIN_ROOT}/scripts/auto-checkpoint.sh" "${task.number}" "${HASH}" "${contract_path}" "${REVIEW_RESULT_PATH}" || true  # fail-open
+        push worker_result.branch and create/update its PR
+        Plans.md: task.status = "cc:WIP [PR #{number}: review/CI pending]"
+        wait for formal review, required CI, and GitHub merge receipt
+        run harness-sync and create a separate marker PR: `cc:完了 [merge-sha]`
+        cleanup the worker's worktree only after PR creation
     else:
         escalate to the user
 
@@ -192,4 +195,4 @@ for task in execution_order:
 
 1. Aggregate the commit log for all tasks.
 2. Render the rich completion report (Breezing template in [completion-report.md](completion-report.md)).
-3. Confirm every task in `Plans.md` reached `cc:完了`.
+3. Confirm every task has a GitHub merge receipt and its separate marker PR records `cc:完了 [merge-sha]`.

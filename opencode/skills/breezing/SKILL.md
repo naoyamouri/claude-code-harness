@@ -285,7 +285,7 @@ cursor backend は Worker agent spawn / self_review 5 件ゲート / sprint-cont
 3. **1 bash で resolve**: `bash "${HARNESS_PLUGIN_ROOT}/scripts/resolve-impl-backend.sh"` + `bash "${HARNESS_PLUGIN_ROOT}/scripts/model-routing.sh" --host cursor --role worker --field model`
 4. **即 委譲**: `bash "${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh" task --write --workspace <wt> "<task>"`
    - 委譲開始時に `bin/harness session declare --task <task-id>` で共有 presence に作業宣言（他セッションから task 番号で逆引き可能になる）
-5. cursor 出力を Lead が diff レビュー → cherry-pick → Plans.md `cc:done [hash]` 更新
+5. cursor 出力を Lead が diff レビュー → topic branch を push → PR を作成。**topic branch → PR → formal review → CI → GitHub merge** が終わるまで `cc:WIP` のままにする
    - 更新後 `bin/harness session declare --clear` で presence の task 宣言を解除
    - run 全体が終わる時（成功・失敗・中断いずれでも）は `bin/harness work-mode off` を忘れない
 
@@ -299,8 +299,8 @@ Worker 実装は既完了（別系統 = claude / Codex で済んだ）、advisor
    - cursor 側はファイル書込・コマンド実行が disabled、worktree 隔離不要
 3. cursor 出力 (REQUEST_CHANGES / APPROVE 相当) を Lead が解釈し、`dual_review.cursor_verdict` に advisory として格納
 4. **primary verdict は brain reviewer から取る**。cursor 単独では APPROVE を確定しない (spec.md Execution Backend Contract の self-review scope 契約 = 「diff を生成した同一コンテキストは自分の出力をレビューしない」と整合)。この lean path 自体が fresh-context advisory pre-review であり、委譲先 cursor session は実装 worker と会話状態を共有しないこと
-5. **brain 一次レビュー**: Lead が cursor advisory findings を入力として対象 diff を自ら検分し、verdict（`APPROVE | REQUEST_CHANGES`）を出す。brain reviewer が利用不能（rate limit 等）の間は verdict を確定せず、タスクを `cc:wip` のままユーザー判断へ渡す（cursor advisory のみで `cc:done` にしない）
-6. brain の APPROVE 後に Plans.md `cc:done [hash]` を Lead が更新
+5. **brain 一次レビュー**: Lead が cursor advisory findings を入力として対象 diff を自ら検分し、verdict（`APPROVE | REQUEST_CHANGES`）を出す。brain reviewer が利用不能（rate limit 等）の間は verdict を確定せず、タスクを `cc:blocked [reviewer unavailable]` のままユーザー判断へ渡す
+6. brain の APPROVE は PR 作成の前提に過ぎない。GitHub merge receipt 後に `harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録する
 
 read mode で省略できるもの: 専用 `.git` worktree / cursor 出力の取り込みレビュー / cherry-pick / `worker-report.v1` / self_review 5 件。**省略不可**: 対象 diff への brain 一次レビュー（verdict 確定）。
 read mode でも保持必要: `.cursorignore` / egress allowlist (`*.cursor.sh`) / permissions.json (best-effort)。詳細は `.claude/rules/cursor-cli-only.md` 「Read mode delegation (lean path)」節を参照。
@@ -407,13 +407,13 @@ Breezing モードでもレビューは **Codex exec 優先 → 内部 Reviewer 
 - **self_review ゲート (Reviewer spawn 前)**: Lead が `self_review[].verified` と `evidence` を機械検証。1 件でも `verified:false` or `evidence:""` なら Reviewer を spawn せず Worker に自動差し戻し（同一セッション内 最大 2 回、3 回目で escalate）
 - Lead が Codex exec でレビュー（120s タイムアウト、フォールバック: Reviewer agent）
 - REQUEST_CHANGES → Lead が SendMessage で Worker に修正指示、Worker が amend（最大 `MAX_REVIEWS` 回。`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3`）
-- APPROVE → **Lead** が main に cherry-pick → Plans.md を `cc:完了 [{hash}]` に更新
+- APPROVE → **Lead** が topic branch を push して PR を作成。**topic branch → PR → formal review → CI → GitHub merge** の receipt を確認後、`harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録
 
 ### 完了報告（Phase C — Lead が生成）
 
 全タスク完了後、**Lead** が以下の手順でリッチ完了報告を生成する:
 
-1. `git log --oneline {base_ref}..HEAD` で全 cherry-pick コミットを収集
+1. `gh pr view --json mergeCommit` と merged PR の commit log から GitHub merge receipt を収集
 2. `git diff --stat {base_ref}..HEAD` で全体の変更規模を取得
 3. Plans.md の `cc:TODO` / `cc:WIP` 残タスクを抽出
 4. `harness-work` の `Completion Report Output Contract` と `references/completion-report.md` の Breezing テンプレートに従い出力
@@ -432,7 +432,7 @@ Breezing モードでもレビューは **Codex exec 優先 → 内部 Reviewer 
 
 ### 依存グラフに基づくタスク割り当て
 
-Plans.md に Depends カラムがある場合（v2 フォーマット）、`Depends` が `-` の独立タスクを先に並列 spawn し、各 Worker 完了後に Lead がレビュー→cherry-pick する（harness-work Phase B 参照）。依存元が main に入ったら、それに依存していたタスクを次に実行し、全タスク完了まで繰り返す。逐次処理なのは「Worker 完了→レビュー→cherry-pick」で、並列化できるのは独立タスクの Worker spawn 部分のみ。詳細は [references/lean-path-detail.md](${CLAUDE_SKILL_DIR}/references/lean-path-detail.md) を参照。
+Plans.md に Depends カラムがある場合（v2 フォーマット）、`Depends` が `-` の独立タスクを先に並列 spawn し、各 Worker 完了後に Lead がレビュー→topic branch の PR 作成をする（harness-work Phase B 参照）。依存元の GitHub merge receipt を確認してから、それに依存していたタスクを次に実行する。待機中は `cc:blocked [waiting for PR merge/CI]` とし、並列化できるのは独立タスクの Worker spawn 部分のみ。詳細は [references/lean-path-detail.md](${CLAUDE_SKILL_DIR}/references/lean-path-detail.md) を参照。
 
 ## Codex Native Orchestration
 

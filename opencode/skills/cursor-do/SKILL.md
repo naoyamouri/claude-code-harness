@@ -1,13 +1,13 @@
 ---
 name: cursor-do
-description: "Delegate a single write task to Cursor Composer via cursor-companion.sh inside an isolated worktree, then Lead-review the diff and cherry-pick. Use when user invokes cursor:do, says delegate to cursor, have composer write it, refactor with cursor, hand a file edit to Composer. Do NOT load for: planning, code review only, read-only investigation, or multi-task team runs (use breezing --cursor or cursor:ask instead)."
+description: "Delegate a single write task to Cursor Composer in an isolated worktree, then Lead-review and submit a topic-branch PR. Use when user invokes cursor:do, says delegate to cursor, have composer write it, refactor with cursor, hand a file edit to Composer. Do NOT load for: planning, code review only, read-only investigation, or multi-task team runs (use breezing --cursor or cursor:ask instead)."
 ---
 
 # cursor:do — Single-Task Write Delegate to Cursor Composer
 
-1 件の実装タスクを Cursor Composer (`composer-2.5-fast`) に専用 worktree 内で委譲し、Lead が diff をレビューしてから main へ cherry-pick する skill。breezing の team フローを起こさず、1 タスク 1 cherry-pick を最短経路で回す。
+1 件の実装タスクを Cursor Composer (`composer-2.5-fast`) に専用 worktree 内で委譲し、Lead が diff をレビューして topic branch の PR を作成する skill。**topic branch → PR → formal review → CI → GitHub merge** を必ず通し、待機は `cc:blocked [reason]`、merge receipt 後の `cc:完了 [merge-sha]` は `harness-sync` の別 marker PR だけが記録する。
 
-封じ込めは Cursor 側にはない ([references/cursor-cli-only.md](${CLAUDE_SKILL_DIR}/references/cursor-cli-only.md))。**専用 `.git` を持つ worktree + Lead diff review + cherry-pick (R01-R13 経路)** の 3 点だけが実効的な境界。cursor の出力は Lead レビューまで untrusted として扱う。
+封じ込めは Cursor 側にはない ([references/cursor-cli-only.md](${CLAUDE_SKILL_DIR}/references/cursor-cli-only.md))。**専用 `.git` を持つ worktree + Lead diff review + topic-branch PR** の 3 点だけが実効的な境界。cursor の出力は Lead レビューまで untrusted として扱う。
 
 ## Step 0 — NARRATION RULES (UX Contract)
 
@@ -285,66 +285,25 @@ Lead は diff 全文を Read し、以下を確認する:
 - 範囲外変更あり → 該当 commit を `git reset` で巻き戻すか、Cursor に再委譲 (Step 5 を 1 回だけ retry)。2 回失敗で `REQUEST_CHANGES: <理由>` を出し、worktree を残したまま終了
 - protected path / secret 検出 → 即 abort。`ABORT: protected path violation` を出し worktree 削除
 
-## Step 7 — cherry-pick + Plans.md cc:done 更新
+## Step 7 — topic branch を push して PR を作成
 
-worktree から main tree に cherry-pick する。Cursor prompt は exactly one commit 契約だが、Composer は dirty changeset を返すことがあるため Step 6 で commit/amend する。複数 commit が残った場合は main tree を触る前に停止する。
-さらに cherry-pick 前に `Plans.md` の staged / unstaged 差分がないことを確認する。理由: 既存差分がある状態で後続の `git add Plans.md && git commit --amend` を行うと、task と無関係な plan/status 編集を Cursor の code commit に巻き込むため。
-**SHA 直接指定** (branch 名経由ではない) で reviewer state drift を避ける (MEMORY: reviewer_state_drift)。
+Composer の commit は worker worktree に留める。Lead は main を checkout/cherry-pick せず、review 済み branch を push して PR を作る。PR を作成した時点ではタスクは `cc:WIP [PR #<number>: review/CI pending]` のままにする。
 
 ```bash
 bash -c '
   set -euo pipefail
   COMMIT_COUNT="$(cd "${WT_DIR}" && git rev-list --count "${BASE_REF}..HEAD")"
-  if [ "${COMMIT_COUNT}" -eq 0 ]; then
-    echo "ERROR: no commits to cherry-pick"
-    exit 1
-  fi
-  if [ "${COMMIT_COUNT}" -ne 1 ]; then
-    echo "ERROR: cursor returned ${COMMIT_COUNT} commits; expected exactly one. Keep worktree for manual review: ${WT_DIR}"
-    exit 1
-  fi
-  if ! git diff --quiet -- Plans.md || ! git diff --cached --quiet -- Plans.md; then
-    echo "ERROR: Plans.md has pre-existing local edits; refusing to cherry-pick before the cursor:do marker amend"
-    exit 1
-  fi
-  SHA="$(cd "${WT_DIR}" && git rev-parse HEAD)"
-  git cherry-pick "${SHA}"
-  echo "==CHERRY_PICKED=="
-  git log --oneline -n 1
+  [ "${COMMIT_COUNT}" -gt 0 ] || { echo "ERROR: no commits for PR"; exit 1; }
+  git -C "${WT_DIR}" push -u origin "${WT_BRANCH}"
+  gh pr create --base "${BASE_BRANCH}" --head "${WT_BRANCH}" --fill
 '
 ```
 
-cherry-pick で conflict が出たら `git cherry-pick --abort` し、`CHERRY_PICK_CONFLICT: <files>` を 1 行で示して終了 (worktree は残す、ユーザー判断)。
+Formal review、required CI、GitHub merge が終わるまで main と completion marker を変更しない。CI・権限・人間判断の待機は `cc:blocked [reason]` とする。merge receipt 後に `harness-sync` を実行し、marker-only の別 PR で `cc:完了 [merge-sha]` を記録する。
 
-cherry-pick 後、Plans.md に対応行があれば該当タスクのマーカーを更新する。
-上記の clean precondition を通過しているため、ここで発生する Plans.md 差分は marker-only diff として扱う:
+## Step 8 — worktree cleanup + PR 報告 (1 ブロック)
 
-```
-| <task> | ... | cc:done [<merged-sha>] |
-```
-
-該当行の特定: 引数 task 文字列の先頭 40 文字で grep し、ヒットした最初の `cc:TODO` / `cc:WIP` / `cc:todo` 行を `cc:done [<sha>]` に置換する。ヒットなしなら更新スキップ (Plans.md 外のタスクとして扱う)。
-
-マーカーを更新した場合、その編集は cherry-pick commit に含める。未コミットの `Plans.md` を残して cleanup / 完了報告へ進んではならない。
-以下の amend block は、上記 precondition 通過後に実行した marker-only diff だけを対象にする:
-
-```bash
-bash -c '
-  set -euo pipefail
-  if git diff --quiet -- Plans.md; then
-    echo "PLANS_UPDATED=0"
-  else
-    git add Plans.md
-    git commit --amend --no-edit
-    echo "PLANS_UPDATED=1"
-    echo "MERGED_SHA=$(git rev-parse HEAD)"
-  fi
-'
-```
-
-## Step 8 — worktree cleanup + 完了報告 (1 ブロック)
-
-cherry-pick 成功後、worktree を delete する。失敗 path では呼ばれない（worktree を残してユーザー判断）。
+PR 作成確認後にだけ worktree を cleanup する。PR 作成失敗時は worktree を残してユーザー判断に渡す。
 
 ```bash
 bash -c '
@@ -359,11 +318,11 @@ bash -c '
 完了報告は **1 ブロック** で出す。中間ナレーションなし:
 
 ```
-cursor:do completed
+cursor:do PR created
    task: <task-first-60-chars>
    commits: <count>
-   base: <BASE_REF> → cherry-picked into <BASE_BRANCH>
-   plans: <updated|skipped (no match)>
+   base: <BASE_REF> → PR #<number> into <BASE_BRANCH>
+   plans: cc:WIP [PR pending]
    files: <changed-file-count> changed, +<inserts> -<deletes>
 ```
 
@@ -374,8 +333,8 @@ cursor:do completed
 | 専用 `.git` worktree | cursor の書込を main tree から隔離 | 不可（必須） |
 | Lead diff review | untrusted cursor 出力の品質ゲート | 不可（必須） |
 | contract-grep ゲート | docs / locale / matrix 固定文字列の保護 | 不可（必須） |
-| cherry-pick → main | R01-R13 guard rail を通す唯一の経路 | 不可（必須） |
-| Plans.md cc:done 更新 | 台帳との sync | 該当行なければ skip 可 |
+| topic branch → PR | default branch を GitHub merge gate の背後に置く唯一の経路 | 不可（必須） |
+| merge 後の marker PR | `harness-sync` が `cc:完了 [merge-sha]` を記録 | 不可（必須） |
 
 ## Prohibited
 
