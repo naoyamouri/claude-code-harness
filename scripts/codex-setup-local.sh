@@ -561,6 +561,7 @@ sync_named_children "$PLUGIN_DIR/codex/.codex/skills" "$target_root/skills" "Ski
 sync_named_children "$PLUGIN_DIR/codex/.codex/rules" "$target_root/rules" "Rules" "$backup_root"
 install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "write-review-result.sh"
 install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-review-gate.sh"
+install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-closeout.sh"
 
 if [ "$TARGET_MODE" = "project" ]; then
   copy_project_agents "$PLUGIN_DIR" "$backup_root"

@@ -354,6 +354,26 @@ copy_project_agents() {
     log_ok "AGENTS.md copied to project root"
 }
 
+install_codex_helper() {
+    local source_root="$1"
+    local target_root="$2"
+    local backup_root="$3"
+    local helper_name="$4"
+    local src="$source_root/scripts/$helper_name"
+    local dst_dir="$target_root/bin"
+    local dst="$dst_dir/$helper_name"
+
+    [ -x "$src" ] || {
+        log_err "Codex helper source not found: $src"
+        exit 1
+    }
+    mkdir -p "$dst_dir"
+    backup_path "$dst" "$backup_root"
+    cp "$src" "$dst"
+    chmod +x "$dst"
+    log_ok "Codex helper installed to $dst"
+}
+
 resolve_target_root() {
     if [ "$TARGET_MODE" = "user" ]; then
         echo "$CODEX_HOME_DIR"
@@ -548,6 +568,7 @@ print_success() {
     echo "Created/updated:"
     echo "  $target_root/skills/  - Harness skills"
     echo "  $target_root/rules/   - Guardrails"
+    echo "  $target_root/bin/     - PR review and closeout helpers"
     echo "  $backup_root/ - Setup backups (outside skill scan path)"
     if [ "$TARGET_MODE" = "project" ]; then
         echo "  $PROJECT_DIR/AGENTS.md - Project instructions"
@@ -588,6 +609,9 @@ main() {
     cleanup_removed_harness_skill_entries "$TEMP_DIR/harness/codex/.codex/skills" "$target_root/skills" "$backup_root"
     sync_named_children "$TEMP_DIR/harness/codex/.codex/skills" "$target_root/skills" "Skills" "$backup_root"
     sync_named_children "$TEMP_DIR/harness/codex/.codex/rules" "$target_root/rules" "Rules" "$backup_root"
+    install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "write-review-result.sh"
+    install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-review-gate.sh"
+    install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-closeout.sh"
 
     if [ "$TARGET_MODE" = "project" ]; then
         copy_project_agents "$backup_root"

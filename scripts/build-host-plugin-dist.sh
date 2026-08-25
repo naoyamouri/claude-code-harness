@@ -83,7 +83,10 @@ copy_runtime_helpers() {
     resolve-impl-backend.sh \
     set-impl-backend.sh \
     setup-cursor.sh \
-    setup-grok.sh; do
+    setup-grok.sh \
+    harness-pr-review-gate.sh \
+    write-review-result.sh \
+    harness-pr-closeout.sh; do
     if [ -f "${ROOT_DIR}/scripts/${script}" ]; then
       cp "${ROOT_DIR}/scripts/${script}" "${dst_root}/scripts/${script}"
       chmod +x "${dst_root}/scripts/${script}" 2>/dev/null || true

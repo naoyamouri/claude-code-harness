@@ -189,6 +189,9 @@ if bash scripts/build-host-plugin-dist.sh --host codex --out "${codex_dist_tmp}"
     "scripts/resolve-impl-backend.sh"
     "scripts/set-impl-backend.sh"
     "scripts/setup-cursor.sh"
+    "scripts/harness-pr-review-gate.sh"
+    "scripts/write-review-result.sh"
+    "scripts/harness-pr-closeout.sh"
   )
   for path in "${required_codex_dist_paths[@]}"; do
     if [ ! -e "${codex_dist_tmp}/${path}" ]; then
@@ -240,6 +243,54 @@ if $codex_dist_ok; then
   log_pass "Codex host package contains runtime helpers required by Cursor skills"
 else
   log_fail "Codex host package is missing runtime helpers for Cursor skills"
+fi
+
+log_test "setup-codex user install ships current PR workflow helpers"
+setup_codex_ok=true
+setup_codex_tmp="$(mktemp -d)"
+setup_codex_fakebin="${setup_codex_tmp}/bin"
+setup_codex_home="${setup_codex_tmp}/home"
+mkdir -p "${setup_codex_fakebin}" "${setup_codex_home}"
+real_git="$(command -v git)"
+cat > "${setup_codex_fakebin}/git" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "clone" ]; then
+  destination="${!#}"
+  mkdir -p "$destination"
+  tar -C "${HARNESS_SETUP_TEST_SOURCE}" --exclude=.git -cf - . | tar -C "$destination" -xf -
+  exit 0
+fi
+
+exec "${HARNESS_SETUP_TEST_REAL_GIT}" "$@"
+SH
+chmod +x "${setup_codex_fakebin}/git"
+if ! HOME="${setup_codex_home}" \
+  CODEX_HOME="${setup_codex_home}/.codex" \
+  HARNESS_SETUP_TEST_SOURCE="$PROJECT_ROOT" \
+  HARNESS_SETUP_TEST_REAL_GIT="$real_git" \
+  PATH="${setup_codex_fakebin}:$PATH" \
+  bash scripts/setup-codex.sh --user >/tmp/setup-codex-helpers.$$ 2>&1; then
+  echo "  setup-codex.sh --user failed"
+  sed 's/^/    /' /tmp/setup-codex-helpers.$$ | head -80
+  setup_codex_ok=false
+fi
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+  installed_helper="${setup_codex_home}/.codex/bin/${helper}"
+  if [ ! -x "$installed_helper" ]; then
+    echo "  missing executable user helper: $installed_helper"
+    setup_codex_ok=false
+  elif ! cmp -s "scripts/${helper}" "$installed_helper"; then
+    echo "  stale user helper: $installed_helper"
+    setup_codex_ok=false
+  fi
+done
+rm -rf "${setup_codex_tmp}" /tmp/setup-codex-helpers.$$ 2>/dev/null || true
+if $setup_codex_ok; then
+  log_pass "setup-codex user install ships current PR workflow helpers"
+else
+  log_fail "setup-codex user install is missing current PR workflow helpers"
 fi
 
 log_test "Shipped Codex/OpenCode skills have required description frontmatter"
