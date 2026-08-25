@@ -82,6 +82,11 @@ PR_HEAD=""
 PR_BASE=""
 PR_BASE_REF=""
 STRICT_BASE_PROTECTION=1
+PR_IS_DRAFT=""
+PR_MERGE_STATE=""
+PR_MERGEABLE=""
+PR_REPO_IS_PRIVATE=""
+PR_REPO_OWNER=""
 
 origin_repo() {
   local url
@@ -108,7 +113,7 @@ load_pr_context() {
   branch="$(git branch --show-current)"
   [ -n "$branch" ] || die "current branch is unavailable"
   PR_REPO="$(origin_repo)" || die "origin must be a GitHub repository"
-  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid,baseRefOid,baseRefName 2>/dev/null)" \
+  pr_json="$(gh pr view "$branch" --repo "$PR_REPO" --json number,headRefOid,baseRefOid,baseRefName,isDraft,mergeStateStatus,mergeable 2>/dev/null)" \
     || die "no PR found for the current origin branch"
   PR_NUMBER="$(jq -er '.number | tonumber' <<<"$pr_json")" \
     || die "could not read PR number"
@@ -118,6 +123,14 @@ load_pr_context() {
     || die "could not read PR base"
   PR_BASE_REF="$(jq -er '.baseRefName' <<<"$pr_json")" \
     || die "could not read PR base name"
+  PR_IS_DRAFT="$(jq -r '.isDraft' <<<"$pr_json")" \
+    || die "could not read PR draft state"
+  [[ "$PR_IS_DRAFT" = "true" || "$PR_IS_DRAFT" = "false" ]] \
+    || die "could not read PR draft state"
+  PR_MERGE_STATE="$(jq -er '.mergeStateStatus' <<<"$pr_json")" \
+    || die "could not read PR merge state"
+  PR_MERGEABLE="$(jq -er '.mergeable' <<<"$pr_json")" \
+    || die "could not read PR mergeability"
   [ "$PR_HEAD" = "$HEAD_SHA" ] \
     || die "live PR head is $PR_HEAD, but local HEAD is $HEAD_SHA"
 }
@@ -242,12 +255,20 @@ verify() {
 }
 
 require_strict_base_protection() {
-  local encoded_base_ref protection strict
+  local encoded_base_ref protection strict repo_metadata
   encoded_base_ref="$(jq -rn --arg value "$PR_BASE_REF" '$value | @uri')" \
     || die "could not encode PR base branch"
   if ! protection="$(gh api "repos/$PR_REPO/branches/$encoded_base_ref/protection/required_status_checks" --include 2>&1)"; then
     if [[ "$protection" == *"403 Forbidden"* ]] \
       && [[ "$protection" == *"Upgrade to GitHub Pro or make this repository public"* ]]; then
+      repo_metadata="$(gh api "repos/$PR_REPO" 2>/dev/null)" \
+        || die "could not verify whether $PR_REPO is private"
+      PR_REPO_IS_PRIVATE="$(jq -r '.private' <<<"$repo_metadata")" \
+        || die "could not read whether $PR_REPO is private"
+      PR_REPO_OWNER="$(jq -er '.owner.login' <<<"$repo_metadata")" \
+        || die "could not read $PR_REPO owner"
+      [ "$PR_REPO_IS_PRIVATE" = "true" ] \
+        || die "strict protection fallback is only available for private GitHub Free repositories"
       echo "pr-review-gate: GitHub Free private repository; strict base protection is unavailable, using reviewed base/head checks" >&2
       STRICT_BASE_PROTECTION=0
       return
@@ -259,6 +280,28 @@ require_strict_base_protection() {
     || die "could not read base branch protection for $PR_BASE_REF"
   [ "$strict" = "true" ] \
     || die "agent merge requires 'Require branches to be up to date before merging' on $PR_BASE_REF"
+}
+
+require_free_private_merge_conditions() {
+  local checks comments reviewed_at
+  reviewed_at="$(jq -er '.reviewed_at' "$(receipt_path "$PR_NUMBER")")" \
+    || die "could not read the APPROVE receipt timestamp"
+  comments="$(gh api "repos/$PR_REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate --slurp 2>/dev/null)" \
+    || die "private GitHub Free merge requires a readable user approval comment"
+  jq -e --arg owner "$PR_REPO_OWNER" --arg head "$HEAD_SHA" --arg reviewed_at "$reviewed_at" '
+    flatten | any(.[]; .user.login == $owner
+      and .body == ("harness merge " + $head)
+      and .created_at >= $reviewed_at)
+  ' <<<"$comments" >/dev/null \
+    || die "private GitHub Free merge requires a post-review comment from $PR_REPO_OWNER: harness merge $HEAD_SHA"
+  [ "$PR_IS_DRAFT" = "false" ] \
+    || die "private GitHub Free merge requires a non-draft PR"
+  [ "$PR_MERGE_STATE" = "CLEAN" ] && [ "$PR_MERGEABLE" = "MERGEABLE" ] \
+    || die "private GitHub Free merge requires a CLEAN, mergeable PR (got $PR_MERGE_STATE/$PR_MERGEABLE)"
+  checks="$(gh pr checks "$PR_NUMBER" --repo "$PR_REPO" --json name,state,workflow 2>/dev/null)" \
+    || die "private GitHub Free merge requires all CI checks to complete successfully"
+  jq -e 'type == "array" and length > 0 and all(.[]; .state == "SUCCESS")' <<<"$checks" >/dev/null \
+    || die "private GitHub Free merge requires every reported CI check to be SUCCESS"
 }
 
 verify_merge_submission() {
@@ -302,7 +345,10 @@ case "$ACTION" in
   merge)
     verify
     require_strict_base_protection
-    [ "$STRICT_BASE_PROTECTION" = 1 ] || verify
+    if [ "$STRICT_BASE_PROTECTION" = 0 ]; then
+      verify
+      require_free_private_merge_conditions
+    fi
     if [ "$DRY_RUN" -eq 1 ]; then
       echo "gh pr merge $PR_NUMBER --repo $PR_REPO --squash --match-head-commit $HEAD_SHA"
     else
