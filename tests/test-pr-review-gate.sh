@@ -387,7 +387,7 @@ PR_BASE_PROTECTION_ERROR=free-private
 
 PR_REPO_PRIVATE=false
 set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 public_repo_rc=$?
 set -e
 [ "$public_repo_rc" -ne 0 ] || fail "the fallback must reject a non-private repository"
