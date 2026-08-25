@@ -9,7 +9,7 @@ Usage:
   scripts/harness-pr-review-gate.sh context
   scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE] [--review-report FILE]
   scripts/harness-pr-review-gate.sh verify --base REF
-  scripts/harness-pr-review-gate.sh merge --base REF [--dry-run] [--user-merge-head SHA]
+  scripts/harness-pr-review-gate.sh merge --base REF [--dry-run]
 USAGE
 }
 
@@ -28,7 +28,6 @@ BASE_REF=""
 REVIEW_RESULT=".claude/state/review-result.json"
 REVIEW_REPORT=".claude/state/pr-review-report.md"
 DRY_RUN=0
-USER_MERGE_HEAD=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -60,14 +59,6 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
-    --user-merge-head)
-      USER_MERGE_HEAD="${2:-}"
-      shift 2
-      ;;
-    --user-merge-head=*)
-      USER_MERGE_HEAD="${1#*=}"
-      shift
-      ;;
     -h|--help)
       usage
       exit 0
@@ -94,6 +85,8 @@ STRICT_BASE_PROTECTION=1
 PR_IS_DRAFT=""
 PR_MERGE_STATE=""
 PR_MERGEABLE=""
+PR_REPO_IS_PRIVATE=""
+PR_REPO_OWNER=""
 
 origin_repo() {
   local url
@@ -262,15 +255,19 @@ verify() {
 }
 
 require_strict_base_protection() {
-  local encoded_base_ref protection strict private
+  local encoded_base_ref protection strict repo_metadata
   encoded_base_ref="$(jq -rn --arg value "$PR_BASE_REF" '$value | @uri')" \
     || die "could not encode PR base branch"
   if ! protection="$(gh api "repos/$PR_REPO/branches/$encoded_base_ref/protection/required_status_checks" --include 2>&1)"; then
     if [[ "$protection" == *"403 Forbidden"* ]] \
       && [[ "$protection" == *"Upgrade to GitHub Pro or make this repository public"* ]]; then
-      private="$(gh api "repos/$PR_REPO" --jq .private 2>/dev/null)" \
+      repo_metadata="$(gh api "repos/$PR_REPO" 2>/dev/null)" \
         || die "could not verify whether $PR_REPO is private"
-      [ "$private" = "true" ] \
+      PR_REPO_IS_PRIVATE="$(jq -r '.private' <<<"$repo_metadata")" \
+        || die "could not read whether $PR_REPO is private"
+      PR_REPO_OWNER="$(jq -er '.owner.login' <<<"$repo_metadata")" \
+        || die "could not read $PR_REPO owner"
+      [ "$PR_REPO_IS_PRIVATE" = "true" ] \
         || die "strict protection fallback is only available for private GitHub Free repositories"
       echo "pr-review-gate: GitHub Free private repository; strict base protection is unavailable, using reviewed base/head checks" >&2
       STRICT_BASE_PROTECTION=0
@@ -286,9 +283,17 @@ require_strict_base_protection() {
 }
 
 require_free_private_merge_conditions() {
-  local checks
-  [ "$USER_MERGE_HEAD" = "$HEAD_SHA" ] \
-    || die "private GitHub Free merge requires an explicit user instruction for current HEAD: --user-merge-head $HEAD_SHA"
+  local checks comments reviewed_at
+  reviewed_at="$(jq -er '.reviewed_at' "$(receipt_path "$PR_NUMBER")")" \
+    || die "could not read the APPROVE receipt timestamp"
+  comments="$(gh api "repos/$PR_REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate --slurp 2>/dev/null)" \
+    || die "private GitHub Free merge requires a readable user approval comment"
+  jq -e --arg owner "$PR_REPO_OWNER" --arg head "$HEAD_SHA" --arg reviewed_at "$reviewed_at" '
+    flatten | any(.[]; .user.login == $owner
+      and .body == ("harness merge " + $head)
+      and .created_at >= $reviewed_at)
+  ' <<<"$comments" >/dev/null \
+    || die "private GitHub Free merge requires a post-review comment from $PR_REPO_OWNER: harness merge $HEAD_SHA"
   [ "$PR_IS_DRAFT" = "false" ] \
     || die "private GitHub Free merge requires a non-draft PR"
   [ "$PR_MERGE_STATE" = "CLEAN" ] && [ "$PR_MERGEABLE" = "MERGEABLE" ] \

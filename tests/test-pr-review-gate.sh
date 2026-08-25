@@ -67,8 +67,16 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   exit 0
 fi
 if [ "$1" = "api" ]; then
-  if [[ "$*" == *"repos/test-owner/test-repo --jq .private"* ]]; then
-    printf '%s\n' "${PR_REPO_PRIVATE:-true}"
+  if [[ "$*" == *"repos/test-owner/test-repo"* ]] && [[ "$*" != *"/branches/"* ]] && [[ "$*" != *"/issues/"* ]]; then
+    printf '{"private":%s,"owner":{"login":"%s"}}\n' "${PR_REPO_PRIVATE:-true}" "${MOCK_REPO_OWNER:-test-owner}"
+    exit 0
+  fi
+  if [[ "$*" == *"repos/test-owner/test-repo/issues/42/comments"* ]]; then
+    if [ "${MOCK_HUMAN_APPROVAL:-false}" = "true" ]; then
+      printf '[[{"user":{"login":"%s"},"body":"harness merge %s","created_at":"%s"}]]\n' "${MOCK_HUMAN_APPROVER:-test-owner}" "$PR_HEAD_SHA" "${MOCK_HUMAN_APPROVAL_AT:-9999-12-31T23:59:59Z}"
+    else
+      printf '[[]]\n'
+    fi
     exit 0
   fi
   expected_endpoint="repos/test-owner/test-repo/branches/$MOCK_PR_BASE_REF/protection/required_status_checks"
@@ -116,7 +124,7 @@ write_unprovenanced_result() {
 }
 
 run_gate() {
-  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_VIEW_LOG="$PR_VIEW_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" PR_BASE_PROTECTION_ERROR="${PR_BASE_PROTECTION_ERROR:-free-private}" PR_REPO_PRIVATE="${PR_REPO_PRIVATE:-true}" PR_CHECKS_JSON="${PR_CHECKS_JSON:-$DEFAULT_CHECKS}" MOCK_PR_DRAFT="${MOCK_PR_DRAFT:-false}" MOCK_PR_MERGE_STATE="${MOCK_PR_MERGE_STATE:-CLEAN}" MOCK_PR_MERGEABLE="${MOCK_PR_MERGEABLE:-MERGEABLE}" PR_MERGED="${PR_MERGED:-true}" PR_MERGE_QUEUED="${PR_MERGE_QUEUED:-false}" bash "$GATE" "$@"
+  PATH="$BIN:$PATH" MERGE_LOG="$MERGE_LOG" PR_VIEW_LOG="$PR_VIEW_LOG" PR_HEAD_SHA="$PR_HEAD_SHA" PR_BASE_SHA="$PR_BASE_SHA" MOCK_PR_BASE_REF="$PR_BASE_REF" PR_BASE_PROTECTION_AVAILABLE="${PR_BASE_PROTECTION_AVAILABLE:-true}" PR_BASE_PROTECTION_STRICT="${PR_BASE_PROTECTION_STRICT:-true}" PR_BASE_PROTECTION_ERROR="${PR_BASE_PROTECTION_ERROR:-free-private}" PR_REPO_PRIVATE="${PR_REPO_PRIVATE:-true}" MOCK_REPO_OWNER="${MOCK_REPO_OWNER:-test-owner}" MOCK_HUMAN_APPROVAL="${MOCK_HUMAN_APPROVAL:-false}" MOCK_HUMAN_APPROVER="${MOCK_HUMAN_APPROVER:-test-owner}" MOCK_HUMAN_APPROVAL_AT="${MOCK_HUMAN_APPROVAL_AT:-9999-12-31T23:59:59Z}" PR_CHECKS_JSON="${PR_CHECKS_JSON:-$DEFAULT_CHECKS}" MOCK_PR_DRAFT="${MOCK_PR_DRAFT:-false}" MOCK_PR_MERGE_STATE="${MOCK_PR_MERGE_STATE:-CLEAN}" MOCK_PR_MERGEABLE="${MOCK_PR_MERGEABLE:-MERGEABLE}" PR_MERGED="${PR_MERGED:-true}" PR_MERGE_QUEUED="${PR_MERGE_QUEUED:-false}" bash "$GATE" "$@"
 }
 
 [ -x "$GATE" ] || fail "missing executable gate: $GATE"
@@ -311,7 +319,7 @@ set -e
 [ ! -s "$MERGE_LOG" ] || fail "remote base mismatch must not invoke gh pr merge"
 PR_BASE_SHA="$BASE"
 
-# private Free の既知403では、人の明示指示、全CI成功、CLEANなPRを要求する。
+# private Free の既知403では、所有者の明示コメント、全CI成功、CLEANなPRを要求する。
 PR_BASE_PROTECTION_AVAILABLE=false
 : > "$MERGE_LOG"
 : > "$PR_VIEW_LOG"
@@ -319,18 +327,35 @@ set +e
 (cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 free_without_instruction_rc=$?
 set -e
-[ "$free_without_instruction_rc" -ne 0 ] || fail "Free private fallback must require an explicit user merge instruction"
+[ "$free_without_instruction_rc" -ne 0 ] || fail "Free private fallback must require a human approval comment"
 : > "$PR_VIEW_LOG"
 
-free_private_dry_run="$(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA")"
+MOCK_HUMAN_APPROVAL=true
+free_private_dry_run="$(cd "$REPO" && run_gate merge --base "$BASE" --dry-run)"
 [[ "$free_private_dry_run" == *"--match-head-commit $HEAD_SHA"* ]] \
   || fail "Free private fallback must retain the reviewed head pin"
 [ "$(wc -l < "$PR_VIEW_LOG" | tr -d ' ')" = 2 ] \
   || fail "Free private fallback must revalidate the live PR immediately before merge"
 
+MOCK_HUMAN_APPROVER=not-the-owner
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+wrong_approver_rc=$?
+set -e
+[ "$wrong_approver_rc" -ne 0 ] || fail "Free private fallback must reject an approval from a non-owner"
+MOCK_HUMAN_APPROVER=test-owner
+
+MOCK_HUMAN_APPROVAL_AT=2000-01-01T00:00:00Z
+set +e
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
+stale_approval_rc=$?
+set -e
+[ "$stale_approval_rc" -ne 0 ] || fail "Free private fallback must require approval after the receipt"
+MOCK_HUMAN_APPROVAL_AT=9999-12-31T23:59:59Z
+
 PR_CHECKS_JSON='[{"name":"Tests","state":"PENDING","workflow":"Tests"}]'
 set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 pending_checks_rc=$?
 set -e
 [ "$pending_checks_rc" -ne 0 ] || fail "Free private fallback must reject incomplete CI"
@@ -338,7 +363,7 @@ PR_CHECKS_JSON='[{"name":"Tests","state":"SUCCESS","workflow":"Tests"}]'
 
 PR_CHECKS_JSON='[{"name":"Tests","state":"FAILURE","workflow":"Tests"}]'
 set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 failed_checks_rc=$?
 set -e
 [ "$failed_checks_rc" -ne 0 ] || fail "Free private fallback must reject failed CI"
@@ -346,7 +371,7 @@ PR_CHECKS_JSON='[{"name":"Tests","state":"SUCCESS","workflow":"Tests"}]'
 
 MOCK_PR_MERGE_STATE=DIRTY
 set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 dirty_pr_rc=$?
 set -e
 [ "$dirty_pr_rc" -ne 0 ] || fail "Free private fallback must require a CLEAN PR"
@@ -354,7 +379,7 @@ MOCK_PR_MERGE_STATE=CLEAN
 
 PR_BASE_PROTECTION_ERROR=not-free-private
 set +e
-(cd "$REPO" && run_gate merge --base "$BASE" --dry-run --user-merge-head "$HEAD_SHA") >/dev/null 2>&1
+(cd "$REPO" && run_gate merge --base "$BASE" --dry-run) >/dev/null 2>&1
 other_403_rc=$?
 set -e
 [ "$other_403_rc" -ne 0 ] || fail "only the known private Free protection 403 may use the fallback"
