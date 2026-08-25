@@ -18,7 +18,7 @@ Change history for claude-code-harness.
 
 ### Fixed
 
-- PR review receipt は `harness-review code` の workflow / mode と人向け report の SHA-256 を必須照合し、generic `reviewer` の自由文・正規化JSONだけでは agent merge を通せないようにした
+- PR review receipt は `harness-review code` の workflow / mode と人向け report の SHA-256 を必須照合し、generic `reviewer` の自由文・正規化JSONだけでは agent merge を通せないようにした。後続 `REQUEST_CHANGES` は同一 HEAD の古い APPROVE receipt を無効化する
 - 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` で全CIを対象branchへ起動するようにした
 - GitHub Freeのprivate repositoryでbranch-protection APIが返す既知の403では、review済みbase/headの再照合とhead pinでagent mergeを続行できるようにした。strict protectionが利用できる場合以外のAPIエラーは従来どおり拒否する
 

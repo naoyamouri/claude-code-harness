@@ -194,3 +194,13 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | 142.3 | `[lane:gate] [tdd:required]` GitHub Free private repoでも、current review receiptを確認したagent mergeを実行する。 | GitHub branch-protection API が Free private の既知403を返す時だけ、live PR base/headをmerge直前に再照合して`--match-head-commit`でmergeする。`strict:false`、認証・通信など他のAPIエラー、receipt/base/head不一致は従来どおり拒否し、GitHub上で`MERGED`またはmerge queueの`QUEUED`を確認する。原子的なbase保護はGitHub有料機能が利用可能な時だけであることを仕様に明記し、fixtureテストが GREEN。 | 142.1 | cc:done [PR #8 / 51c8302] |
 
 ---
+
+## Phase 143: PR review rejection invalidation (2026-08-25)
+
+**Purpose**: 後続の `REQUEST_CHANGES` が同一 PR HEAD の古い `APPROVE` receipt を残さず、formal review の最新 verdict だけが agent merge を許可するようにする。Phase 142 の review gate を補完する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 143.1 | `[lane:gate] [tdd:required]` `REQUEST_CHANGES` を受けた PR review gate が current receipt を無効化し、merge を拒否するようにする。 | RED: 同一 HEAD に APPROVE receipt を作った後に REQUEST_CHANGES を record しても `verify` が通る。GREEN: REQUEST_CHANGES の record 後は receipt が無く、`verify` / `merge --dry-run` が失敗する。PRなし、artifact/provenance/report digest の照合は既存どおり fail closed。 | 142.1, 142.2 | cc:WIP |
+
+---

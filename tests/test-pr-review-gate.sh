@@ -157,14 +157,12 @@ no_pr_rc=$?
 set -e
 [ "$no_pr_rc" -ne 0 ] || fail "record must fail without a PR"
 
-# REQUEST_CHANGESはreceiptにできない。
+# REQUEST_CHANGESはreceiptを発行せず、成功として既存receiptを無効化する。
 printf '{"verdict":"REQUEST_CHANGES"}\n' > "$REVIEW_INPUT"
 write_result
-set +e
-(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT") >/dev/null 2>&1
-request_changes_rc=$?
-set -e
-[ "$request_changes_rc" -ne 0 ] || fail "record must reject REQUEST_CHANGES"
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
+[ ! -f "$REPO/.git/harness/pr-review-receipts/42.json" ] \
+  || fail "REQUEST_CHANGES must not leave a receipt"
 
 # workflow を指定しない generic reviewer 出力ではreceiptを発行しない。
 printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
@@ -205,6 +203,22 @@ jq -e --arg base "$BASE" --arg pr_base "$PR_BASE_SHA" --arg pr_base_ref "$PR_BAS
 ' "$RECEIPT" >/dev/null || fail "receipt fields are incomplete"
 
 (cd "$REPO" && run_gate verify --base "$BASE")
+
+# 同一HEADの後続REQUEST_CHANGESは、古いAPPROVE receiptを無効化する。
+printf '{"verdict":"REQUEST_CHANGES"}\n' > "$REVIEW_INPUT"
+write_result
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
+[ ! -f "$RECEIPT" ] || fail "REQUEST_CHANGES must invalidate an existing APPROVE receipt"
+set +e
+(cd "$REPO" && run_gate verify --base "$BASE") >/dev/null 2>&1
+invalidated_rc=$?
+set -e
+[ "$invalidated_rc" -ne 0 ] || fail "verify must reject an invalidated receipt"
+
+# 後続のAPPROVEでのみreceiptを再発行できる。
+printf '{"verdict":"APPROVE"}\n' > "$REVIEW_INPUT"
+write_result
+(cd "$REPO" && run_gate record --base "$BASE" --review-result "$REVIEW_RESULT")
 
 # upstream remote が gh の既定になっていても、origin のPRだけを操作する。
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate verify --base "$BASE")

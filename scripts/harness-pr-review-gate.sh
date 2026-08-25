@@ -152,7 +152,10 @@ record() {
     || die "review result must use review-result.v1 (got: $schema_version)"
   verdict="$(jq -er '.verdict' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no verdict"
-  [ "$verdict" = "APPROVE" ] || die "review verdict must be APPROVE (got: $verdict)"
+  case "$verdict" in
+    APPROVE|REQUEST_CHANGES) ;;
+    *) die "review verdict must be APPROVE or REQUEST_CHANGES (got: $verdict)" ;;
+  esac
   reviewed_base="$(jq -er '.base_ref' "$REVIEW_RESULT" 2>/dev/null)" \
     || die "review result has no base_ref"
   [ "$reviewed_base" = "$BASE_SHA" ] \
@@ -186,6 +189,11 @@ record() {
   [ "$reviewed_pr_base_ref" = "$PR_BASE_REF" ] \
     || die "review result is for PR base branch $reviewed_pr_base_ref, but live PR base branch is $PR_BASE_REF"
   receipt="$(receipt_path "$PR_NUMBER")"
+  if [ "$verdict" = "REQUEST_CHANGES" ]; then
+    rm -f "$receipt"
+    echo "Invalidated APPROVE receipt for PR #$PR_NUMBER after REQUEST_CHANGES"
+    return
+  fi
   receipt_dir="$(dirname "$receipt")"
   mkdir -p "$receipt_dir"
   temp="${receipt}.tmp.$$"
