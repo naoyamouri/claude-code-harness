@@ -131,6 +131,7 @@ printf 'seed\n' >"${DETACHED_REPO}/README.md"
 git -C "${DETACHED_REPO}" add README.md
 git -C "${DETACHED_REPO}" commit -q -m "seed"
 git -C "${DETACHED_REPO}" checkout -q -b task/72.1.5
+git -C "${DETACHED_REPO}" remote add origin https://github.com/test-owner/test-repo.git
 
 PAYLOAD_C="${TMP_DIR}/payload-c.json"
 (
@@ -152,6 +153,7 @@ set -e
 
 [ "${push_rc}" -eq 0 ] || fail "(c) push --yes should exit 0 on attached branch, got ${push_rc}"
 grep -Fq 'pr create' "${GH_CALLS}" || fail "(c) push --yes must call gh pr create"
+grep -Fq -- '--repo test-owner/test-repo' "${GH_CALLS}" || fail "(c) gh pr create must use origin repository"
 grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must normalize origin/ from --base"
 grep -Fq -- '--head task/72.1.5' "${GH_CALLS}" || fail "(c) gh pr create must pass --head"
 grep -Fq -- '--title' "${GH_CALLS}" || fail "(c) gh pr create must pass --title"
