@@ -94,7 +94,7 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/model-routing.sh" --host cursor --role work
 bash "${HARNESS_PLUGIN_ROOT}/scripts/model-routing.sh" --host claude --role reviewer --field model
 ```
 
-backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せず companion を直接呼ぶ（Worker 介在なしトポロジー）。self_review ゲートはスキップし、Lead の diff レビューが唯一の品質ゲートになる。委託前に cursor backend banner を出力し、cherry-pick 前に contract grep 二段ゲート（`test-support-claim-wording.sh` / `check-consistency.sh` / `validate-plugin.sh`）を通す。Mode 1 の Producer → Sub-Lead → Composer 階層、review→iterate ループの詳細は
+backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せず companion を直接呼ぶ（Worker 介在なしトポロジー）。self_review ゲートはスキップし、Lead の diff レビューが唯一の品質ゲートになる。委託前に cursor backend banner を出力し、PR 作成前に contract grep 二段ゲート（`test-support-claim-wording.sh` / `check-consistency.sh` / `validate-plugin.sh`）を通す。Mode 1 の Producer → Sub-Lead → Composer 階層、review→iterate ループの詳細は
 [references/backend-selection.md](${CLAUDE_SKILL_DIR}/references/backend-selection.md) を参照。
 
 ## オプション
@@ -263,18 +263,20 @@ def enter_non_claude_companion_review_loop(worker_result):
         verdict = codex_exec_review(diff_text) or reviewer_agent_review(diff_text)
         review_count++
     if verdict == "APPROVE":
-        git cherry-pick --no-commit {worker_result.baseCommit}..{worker_result.commit}
+        git("-C", worker_result.worktreePath, "push", "-u", "origin", worker_result.branch)
+        gh("pr", "create", "--base", default_branch, "--head", worker_result.branch)
+        Plans.md: task.status = "cc:WIP [PR #{number}: review/CI pending]"
 ```
 
 Parallel は task ごとにこの resolver path を適用する。
-backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task ごとに isolated companion worktree を作成して `companion-result.v1` に正規化してから non-Claude companion 専用の range review / cherry-pick loop に入る。
+backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task ごとに isolated companion worktree を作成して `companion-result.v1` に正規化してから non-Claude companion 専用の range review / topic-branch PR loop に入る。
 
 ### Solo モード（1 件時の自動選択）
 
-Plans.md 読み込みから `cc:完了 [hash]` までの 1〜17 ステップ完全版は
+Plans.md 読み込みから PR merge receipt を確認するまでの 1〜17 ステップ完全版は
 [references/execution-modes.md#solo-detailed-steps](${CLAUDE_SKILL_DIR}/references/execution-modes.md) を参照。
 要点: **仕様正本 preflight** で spec SSOT の有無を確認し `spec_path` を Worker/Reviewer に渡す。plan-time 事前確認を適用し、
-work 中の宣言済み事項起因 `AskUserQuestion` はゼロにする。TDD Red → sprint-contract → 実装 → レビューループ → commit → `cc:完了` の順で進める。
+work 中の宣言済み事項起因 `AskUserQuestion` はゼロにする。TDD Red → sprint-contract → 実装 → topic branch → PR → formal review → CI → GitHub merge の順で進める。待機・権限待ち・CI 未了は `cc:blocked [reason]` とし、merge receipt 後にだけ `harness-sync` を実行して別の marker PR で `cc:完了 [merge-sha]` を記録する。
 
 ### Parallel モード（2〜3 件時の自動選択 / `--parallel N` で強制）
 
@@ -312,10 +314,11 @@ cat "$CODEX_PROMPT" | HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.clau
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH"
 rm -f "$CODEX_PROMPT"
 
-# Lead review 後に承認されたら range を取り込む
+# Lead review 後に承認されたら topic branch を push して PR を作る
 git -C "$WORKTREE_PATH" diff "$BASE_REF..HEAD"
-WORKTREE_HEAD="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"
-git cherry-pick --no-commit "$BASE_REF..$WORKTREE_HEAD"
+BRANCH="$(git -C "$WORKTREE_PATH" branch --show-current)"
+git -C "$WORKTREE_PATH" push -u origin "$BRANCH"
+gh pr create --base "$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')" --head "$BRANCH"
 ```
 
 companion は App Server Protocol 経由で Codex と通信し、
@@ -329,7 +332,7 @@ bootstrap route。Cursor は `candidate` のまま — supported claim は禁止
 
 - **Solo / Parallel**: Task tool または `.cursor/agents/worker.md` subagent
 - **Breezing**: Worker 並列は non-overlapping file groups のみ;
-  Reviewer / cherry-pick / Advisor は core どおり直列
+  Reviewer / PR 作成 / Advisor は core どおり直列
 - **Multitask / background agents**: smoke target のみ。Claude Agent Teams parity
   を主張しない
 
@@ -346,7 +349,7 @@ Lead / Worker / Advisor / Reviewer の役割分離でチーム実行する。
 Codex では `spawn_agent`, `wait`, `send_input`, `resume_agent`, `close_agent`
 を使った native subagent orchestration を前提にする。
 Cursor では Task/subagent/background agents へ mapping するが、
-review/cherry-pick の直列責務は core 側に残す（adapter smoke target）。
+review/PR 作成の直列責務は core 側に残す（adapter smoke target）。
 
 **権限ポリシー**: 現行の shipped default は `bypassPermissions`。`--auto-mode` は互換な親セッション向けの opt-in rollout フラグ。
 `permissions.defaultMode` や agent frontmatter の `permissionMode` には未文書化の `autoMode` 値を書かない。
@@ -359,8 +362,8 @@ Lead (this agent)
 ```
 
 Phase A（準備: Plans.md 読み込み・依存解決・plan-preapproval 適用・effort スコアリング・sprint-contract 生成）→
-Phase B（各タスク: Worker spawn → 必要時 Advisor → self_review ゲート → レビューループ → APPROVE で trunk へ cherry-pick）→
-Phase C（統合: commit log 集計・リッチ完了報告・Plans.md 最終確認）の 3 段構成。
+Phase B（各タスク: Worker spawn → 必要時 Advisor → self_review ゲート → レビューループ → topic branch を push して PR）→
+Phase C（PR の formal review・CI・GitHub merge receipt → `harness-sync` → 別 marker PR）の 3 段構成。
 完全版の pseudocode（B-1〜B-7 の逐次手順含む）は
 [references/execution-modes.md#breezing-phase-detail](${CLAUDE_SKILL_DIR}/references/execution-modes.md) を参照。
 

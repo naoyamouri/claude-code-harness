@@ -236,7 +236,7 @@ worker_result = Agent(
 Worker は `mode: breezing` で動作するため:
 - feature branch 上に commit するだけで main には触らない
 - `worktreePath` に変更内容が格納される
-- Lead（harness-loop）が Step 5.5/5.6 でレビュー → cherry-pick を担当する
+- Lead（harness-loop）が Step 5.5/5.6 でレビュー → topic branch の PR 作成を担当する
 
 > **Codex loop 実装差分**: Codex 版は `${HARNESS_PLUGIN_ROOT}/scripts/codex-loop.sh` が background task を起動し、
 > advisor が返した guidance を次回 prompt に prepend して同じ task を再実行する。
@@ -370,7 +370,7 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh" "${REVIEW_RESULT_IN
 
 | verdict | アクション |
 |---------|----------|
-| `APPROVE` | Step 5.6 へ（cherry-pick） |
+| `APPROVE` | Step 5.6 へ（topic branch の PR 作成） |
 | `REQUEST_CHANGES` | 修正ループへ（最大 3 回） |
 
 **修正ループ（REQUEST_CHANGES 時）**:
@@ -396,18 +396,13 @@ if review_count >= MAX_REVIEWS and verdict != "APPROVE":
     raise PivotRequired(f"{MAX_REVIEWS} 回修正後も REQUEST_CHANGES: {issues}")
 ```
 
-### Step 5.6: APPROVE → main に cherry-pick
+### Step 5.6: APPROVE → topic branch を push して PR を作成
 
 ```bash
-# trunk ブランチに戻る（Worker は feature branch で作業）
-TRUNK=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
-git checkout "${TRUNK}"
-
-# feature branch の commit が trunk に未マージかを確認（再入防止）
-if ! git merge-base --is-ancestor "${latest_commit}" HEAD; then
-    git cherry-pick --no-commit "${latest_commit}"
-    git commit -m "${task_title}"
-fi
+# Worker branch is the only integration source. Never checkout or write the
+# default branch from the loop.
+git -C "${worker_result.worktreePath}" push -u origin "${worker_result.branch}"
+gh pr create --base "${BASE_BRANCH}" --head "${worker_result.branch}" --fill
 
 # ── (c) cleanup 順序: worktree remove → branch -D ────────────────────────────────
 # feature branch が worktree に checkout されている状態では
@@ -415,9 +410,9 @@ fi
 # worktree remove を先に実行することで branch -D が安全に動作する。
 #
 # 順序:
-#   1. cherry-pick → main に取り込み（上記 git commit 済み）
+#   1. topic branch を push し PR を作成（上記）
 #   2. worktree remove（feature branch が checked out されていた worktree を削除）
-#   3. branch -D（worktree が remove されたので削除可能になる）
+#   3. branch は GitHub merge 後の cleanup wrapper が削除する
 
 MAIN_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 WORKER_PATH="${worker_result.worktreePath:-}"
@@ -427,21 +422,13 @@ if [ -n "${WORKER_PATH}" ] && [ "${WORKER_PATH}" != "${MAIN_REPO_ROOT}" ]; then
     git worktree remove "${WORKER_PATH}" --force 2>/dev/null || true
 fi
 
-# Step 3: branch -D（worktree remove 後なので安全）
-if [ -n "${worker_result.branch}" ] && \
-   [ "${worker_result.branch}" != "main" ] && \
-   [ "${worker_result.branch}" != "master" ] && \
-   [ "${worker_result.branch}" != "${TRUNK}" ]; then
-    git branch -D "${worker_result.branch}" 2>/dev/null || true
-fi
 ```
 
-Plans.md を更新:
+Plans.md は PR 待機として更新:
 
 ```bash
-# cc:WIP → cc:完了 [{hash}] に更新
-HASH=$(git rev-parse --short HEAD)
-# Plans.md の該当タスク行を更新
+# cc:WIP を維持。CI / review / human wait は cc:blocked [reason]
+# GitHub merge receipt 後に harness-sync が別 marker PR で cc:完了 [merge-sha] を更新
 ```
 
 ### Step 6: plateau 判定

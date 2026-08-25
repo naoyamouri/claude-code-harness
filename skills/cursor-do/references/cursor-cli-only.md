@@ -62,7 +62,7 @@ Cursor 公式ドキュメントは "Never use" と明記している。Harness �
 |---|---|---|
 | 専用 `.git` worktree | 不要 | cursor は書き込みできない |
 | Lead diff review (cursor 出力の取り込みレビュー) | 不要 | cursor が新たな差分を生まないため。※レビュー対象として渡した既存 diff への brain 一次 verdict は省略不可（Role scope 例外参照） |
-| cherry-pick | 不要 | 同上 |
+| PR merge | 不要 | 同上 |
 | `worker-report.v1` / self_review 5 件 | 不要 | 実装をしないため |
 | `--workspace` 引数 | optional | companion 側 workspace guard は `--write` 時のみ発火 |
 
@@ -95,7 +95,7 @@ Worker 介在なし。Reviewer 介在なし。`worker-report.v1` / `review-resul
 | second-opinion レビュー (`harness-review --cursor`) | primary reviewer 昇格 (Opus 必須) |
 | cursor-ask skill 経由の汎用質問 | breezing の team 並列実行 (write mode 必須) |
 
-write mode が必要なケースは **`cursor-do` skill** または **`breezing --cursor`** を使う (どちらも worktree + Lead diff review + cherry-pick の full containment を起動する)。
+write mode が必要なケースは **`cursor-do` skill** または **`breezing --cursor`** を使う (どちらも worktree + Lead diff review + topic PR の full containment を起動する)。
 
 ### それでも残るリスク
 
@@ -146,13 +146,13 @@ Cursor 側には実効的な封じ込めがない (書き込みは confine さ�
 
 1. **専用 `.git` を持つ worktree** で cursor-agent を実行する (隔離)
 2. **Lead が diff をレビュー**する (cursor 出力は Lead レビューまで untrusted として扱う)
-3. **cherry-pick で本流へ取り込む** — この経路で R01-R13 ガードレールを通過する
+3. **topic branch PR を formal review・CI・GitHub merge で取り込む** — Lead / Worker は default branch を checkout/cherry-pick しない
 
 | 層 | 担当 | 実効性 |
 |---|---|---|
 | Cursor `--sandbox enabled` | Cursor | シェルのみ。ファイル編集は confine されない |
 | Cursor `terminalAllowlist` / `mcpAllowlist` | Cursor | best-effort、bypass 可能、security boundary ではない |
-| 専用 `.git` worktree + Lead diff review + cherry-pick (R01-R13) | **Harness** | **唯一の実効的な境界** |
+| 専用 `.git` worktree + Lead diff review + topic PR / formal review / CI | **Harness** | **唯一の実効的な境界** |
 
 cursor-agent の出力は Lead がレビューするまで **untrusted** として扱うこと。
 
@@ -170,7 +170,7 @@ directory」で拒否され何も実行できない)。`--trust` は **workspace
 
 `--workspace <dir>` は cursor-agent への **CWD ヒント**であり、書込境界ではない。
 cursor は `--workspace` 外にも書き込める。Harness 側の境界は (1) 専用 worktree、(2) 実行前後の
-fingerprint 比較 (`bin/harness wt fingerprint`)、(3) Lead diff review + cherry-pick の 3 段で構築する。
+fingerprint 比較 (`bin/harness wt fingerprint`)、(3) Lead diff review + topic PR / formal review / CI の 3 段で構築する。
 
 ## Sandbox 要件 (CC 外側 sandbox を有効のまま使う場合)
 
@@ -207,7 +207,7 @@ primary verdict (`APPROVE | REQUEST_CHANGES`) は brain のみが出す。
 
 backend が `cursor` (または `codex`) のとき、Lead は Worker agent (`claude-code-harness:worker`) を spawn しない。**Lead が直接 `cursor-companion.sh task --write --workspace <isolated-wt>` を呼ぶ**。Worker 層介在は backend=`claude` のときだけ。
 
-理由: 非 claude backend では `worker-report.v1` も `self_review` 配列も生成されないため、Worker を間に挟むと agent 契約 (self_review 5 件) のゲートが空回りする。Lead が直接 companion を呼んで diff レビュー → cherry-pick が正しい配線。
+理由: 非 claude backend では `worker-report.v1` も `self_review` 配列も生成されないため、Worker を間に挟むと agent 契約 (self_review 5 件) のゲートが空回りする。Lead が直接 companion を呼んで diff をレビューし、topic PR を作る。
 
 詳細: `skills/harness-work/SKILL.md` の「非 `claude` バックエンドのトポロジー」節を参照。
 

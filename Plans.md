@@ -39,12 +39,13 @@ PM ↔ Impl 運用で使用する標準マーカー:
 |---------|------|-----------|
 | `pm:requested` / `pm:依頼中` | PM がタスクを起票し、Impl へ依頼中 | PM |
 | `cc:todo` / `cc:TODO` | Impl の未着手タスク | Impl |
-| `cc:wip` / `cc:WIP` | Impl（Claude Code）が着手中 | Impl |
-| `cc:done` / `cc:完了` | Impl が作業完了し、PM の確認待ち | Impl |
+| `cc:wip` / `cc:WIP` | Impl（Claude Code）が実作業中 | Impl |
+| `cc:blocked` | CI・Preview・人間確認・権限などの外部待ち。再開条件を DoD に残す | Impl |
+| `cc:done` / `cc:完了` | GitHub merge と harness-sync 後、marker PR で完了を記録 | Impl |
 | `pm:approved` / `pm:確認済` | PM が最終確認を完了 | PM |
 | `cc:withdrawn` | Impl が判断で取り下げたタスク（superseded / 別タスクで吸収）。breezing は cc:withdrawn を pickup しない | Impl |
 
-**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:done → pm:approved`。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
+**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:blocked（待機時のみ）→ cc:done → pm:approved`。`cc:done` は worker commit や PR 作成だけでは付けず、current review receipt・required CI・GitHub merge・harness-sync の後に C lane marker PR が記録する。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
 
 **後方互換**: `cursor:依頼中` / `cursor:確認済` は `pm:依頼中` / `pm:確認済` の同義として扱う（Cursor PM 運用時の表記）。
 
@@ -202,5 +203,18 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 143.1 | `[lane:gate] [tdd:required]` `REQUEST_CHANGES` を受けた PR review gate が current receipt を無効化し、merge を拒否するようにする。 | RED: 同一 HEAD に APPROVE receipt を作った後に REQUEST_CHANGES を record しても `verify` が通る。GREEN: REQUEST_CHANGES の record 後は receipt が無く、`verify` / `merge --dry-run` が失敗する。PRなし、artifact/provenance/report digest の照合は既存どおり fail closed。 | 142.1, 142.2 | cc:完了 [5ad182b / PR #9] |
+
+---
+
+## Phase 144: Workflow SSOT consolidation (2026-08-25)
+
+**Purpose**: lane / marker / PR closeout の契約を 3 host と配布物で一本化する。worker は topic branch の PR へ統合し、default branch への取り込みは review receipt・CI・GitHub merge の後だけにする。待機を `cc:done` に見せず `cc:blocked` として表現する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 144.1 | `[lane:gate] [tdd:required]` source Harness の work / breezing / cursor-do / loop / sync / plan を PR-first と `cc:blocked` 契約へ統合する。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。GREEN: worker は topic branch/PR だけを渡し、merge 後に harness-sync と marker PR を行う。`cc:done` は merge receipt 後だけ。mirror check と focused contract test が PASS。 | - | cc:WIP |
+| 144.2 | `[lane:gate] [tdd:required]` Codex user install に review gate / result writer / PR closeout helper を配布し、stale helper を検出できるようにする。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。installer と generated Codex package が 3 helper を同梱し、temp CODEX_HOME への user install で executable と current workflow marker を検証する。既存 package test が PASS。 | 144.1 | cc:TODO |
+| 144.3 | `[lane:fast]` workflow/review/release spec を PR-first 契約と marker semantics に合わせ、Plans の canonical marker table を英語 writer family + `cc:blocked` に整える。 | `docs/spec/workflow-review-and-release.md` と Plans marker contract が同じ遷移を示し、legacy read compatibility を維持する。 | 144.1 | cc:TODO |
+| 144.4 | `[lane:gate]` mirror/distribution と plugin validation を統合検証する。 | `sync-skill-mirrors --check`、workflow contract test、`test-codex-package.sh`、`tests/validate-plugin.sh`、consistency check が PASS。 | 144.1, 144.2, 144.3 | cc:TODO |
 
 ---

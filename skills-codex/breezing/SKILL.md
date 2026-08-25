@@ -72,7 +72,7 @@ breezing --no-discuss all       # 計画議論スキップで全タスク完走
 | `--cursor` | `--backend cursor` の別名 | false |
 | `--codex` | `--backend codex` の別名 | false |
 | `--max-workers N` | ready task の同時 spawn 数上限（breezing 固有オプション）。`1` で旧来の直列挙動 | max |
-| `--no-commit` | 非対応（Breezing では Worker の一時 commit と Lead の cherry-pick が必須） | - |
+| `--no-commit` | 非対応（Breezing では Worker の一時 commit と topic PR が必須） | - |
 | `--no-discuss` | 計画議論スキップ | false |
 
 ## Execution
@@ -113,8 +113,8 @@ user `~/.config/claude-harness/impl-backend.env` > call-site default `claude`。
 依存待ちのタスクは、前段タスクが完了して ready になるまで spawn しない。
 旧来の 1 件ずつ進める直列挙動に戻したい場合は `--max-workers 1` を指定する。
 
-Worker の実装は並列化できるが、レビューと main への cherry-pick は直列で行う。
-これは同じ main worktree への書き込み競合を避けるため。
+Worker の実装は並列化できるが、レビューと topic-branch PR 作成は直列で行う。
+default branch は **topic branch → PR → formal review → CI → GitHub merge** の後だけ更新する。待機は `cc:blocked [reason]` とする。
 
 ### `harness-work` との違い
 
@@ -130,7 +130,7 @@ Worker の実装は並列化できるが、レビューと main への cherry-pi
 
 | Role | 実行方式 | 権限 | 責務 |
 |------|---------|------|------|
-| Lead | (self) | 現セッション継承 | 調整・指揮・タスク分配・cherry-pick |
+| Lead | (self) | 現セッション継承 | 調整・指揮・タスク分配・PR 作成 |
 | Worker ×N | resolver result: `spawn_agent` / `codex-companion.sh` / `cursor-companion.sh task --write --workspace <worktree>` | セッション権限継承 | 実装（git worktree 分離） |
 | Advisor | `claude-code-harness:advisor` | 読み取り専用 | 方針助言 (`PLAN` / `CORRECTION` / `STOP`) |
 | Reviewer | companion `review --base` | read-only | 独立レビュー |
@@ -358,10 +358,9 @@ for task in execution_order:
 
     # B-7. 結果処理
     if VERDICT == "APPROVE":
-        commit_hash = git("-C", worktree_path, "rev-parse", "HEAD")
-        git cherry-pick --no-commit {TASK_BASE_REF}..{commit_hash}
-        git commit -m "{task.内容}"
-        Plans.md: task.status = "cc:完了 [{short_hash}]"
+        git("-C", worktree_path, "push", "-u", "origin", branch_name)
+        gh("pr", "create", "--base", default_branch, "--head", branch_name)
+        Plans.md: task.status = "cc:WIP [PR #{number}: review/CI pending]"
     else:
         → ユーザーにエスカレーション（Plans.md は cc:WIP のまま）
         → 後続タスクも停止
@@ -388,7 +387,7 @@ Depends が満たされた ready task が複数ある場合、既定では ready
 worker_a = spawn_agent({ message: "作業ディレクトリ: /tmp/worker-a-$$ ...", fork_context: true })
 worker_b = spawn_agent({ message: "作業ディレクトリ: /tmp/worker-b-$$ ...", fork_context: true })
 
-# 各 Worker の完了を個別に待ち → レビュー → cherry-pick（直列）
+# 各 Worker の完了を個別に待ち → レビュー → PR 作成（直列）
 # wait_agent は最初の1つを返すので、残りの Worker はまだ動作中
 for worker_id in [worker_a, worker_b]:
     wait_agent({ targets: [worker_id] })    # この Worker の完了を待つ
@@ -396,12 +395,12 @@ for worker_id in [worker_a, worker_b]:
     # 修正ループ（必要なら）...
     close_agent({ target: worker_id })
     if VERDICT == "APPROVE":
-        cherry-pick → Plans.md 更新
+        topic branch を push → PR 作成。merge receipt 後に harness-sync の marker PR で完了記録
 ```
 
 > **制約**: 並列化できるのは Depends が満たされた ready task のみ。
 > max は ready task 数の上限であり、無制限 spawn ではない。
-> レビュー → cherry-pick は直列実行（main への書き込みが競合するため）。
+> レビュー → PR 作成は直列実行。GitHub merge receipt 後にだけ `harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録する。
 
 ### Worker の出力契約
 
@@ -428,7 +427,7 @@ Lead はこの JSON を解析して commit hash とファイル一覧を取得�
 
 全タスク完了後、Lead が以下の手順でリッチ完了報告を生成:
 
-1. `git log --oneline {session_base_ref}..HEAD` で全 cherry-pick コミットを収集
+1. `git log --oneline {session_base_ref}..HEAD` で topic branch の全 commit を収集
 2. `git diff --stat {session_base_ref}..HEAD` で全体の変更規模を取得
 3. Plans.md の残タスクを抽出
 4. Breezing テンプレートに従い出力

@@ -118,8 +118,12 @@ backend が `cursor` のとき、Lead は委託前に次の 1 行 banner を必�
 ⚠️ cursor backend: model=composer-2.5-fast / R01-R13 ガードレールは cursor-agent 内部に適用されない / 出力は Lead レビューまで untrusted
 ```
 
-cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lead が main へ cherry-pick する（cherry-pick 経路で R01-R13 が適用される）。
+cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lead が topic branch を push して PR を作る。
 ガバナンス詳細は `.claude/rules/cursor-cli-only.md` を参照。
+
+### PR-first integration contract
+
+すべての backend は **topic branch → PR → formal review → CI → GitHub merge** で default branch に入る。Lead は default branch を直接統合しない。review/CI/権限/人間判断の待機は `cc:blocked [reason]`、GitHub merge receipt 後の `cc:完了 [merge-sha]` は `harness-sync` が別 marker PR で記録する。
 
 ## オプション
 
@@ -280,7 +284,7 @@ else:
 ```
 
 Parallel は task ごとにこの resolver path を適用する。
-backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task ごとに isolated companion worktree を作成して `companion-result.v1` に正規化してから共通 review / cherry-pick loop に入る。
+backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task ごとに isolated companion worktree を作成して `companion-result.v1` に正規化してから共通 review / topic-branch PR loop に入る。
 
 ### Solo モード（1 件時の自動選択）
 
@@ -327,12 +331,10 @@ backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task 
    - APPROVE で次ステップへ。self-check だけでは完了を確定しない
 10. `bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh"` で review artifact を正規化して保存（browser profile は `--browser-result` を渡し、`browser_verdict == PENDING_BROWSER` の時は static verdict を採用）
 11. `git commit` で自動コミット（`--no-commit` で省略可）
-12. タスクを `cc:完了` に更新（commit hash 付与）
-   - `git log --oneline -1` で直近の commit hash（短縮形 7 文字）を取得
-   - Plans.md の Status を `cc:完了 [a1b2c3d]` 形式で更新
-   - commit がない場合（`--no-commit` 時）は hash なしで `cc:完了` のみ
-13. **リッチ完了報告**（`Completion Report Output Contract` と `references/completion-report.md` を参照）
-14. **失敗時の自動再計画**（テスト/CI 失敗時のみ）:
+12. topic branch を push して PR を作成。formal review / CI / GitHub merge 待機は `cc:blocked [reason]` にする
+13. GitHub merge receipt 後に `harness-sync` を実行し、別 marker PR で `cc:完了 [merge-sha]` を記録
+14. **リッチ完了報告**（`Completion Report Output Contract` と `references/completion-report.md` を参照）
+15. **失敗時の自動再計画**（テスト/CI 失敗時のみ）:
     - テスト実行結果を確認
     - 失敗した場合: 修正タスク案を state に保存し、承認コマンド経由で Plans.md に追加（「失敗タスクの自動再チケット化」参照）
     - 成功した場合: 次タスクへ進む
@@ -354,7 +356,7 @@ backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task 
 BASE_REF="$(git rev-parse HEAD)"
 WT_ID="codex-$(date +%Y%m%d-%H%M%S)-$$"
 WORKTREE_PATH=".claude/worktrees/${WT_ID}"
-git worktree add -b "codex-work/${WT_ID}" "$WORKTREE_PATH" "$BASE_REF"
+git worktree add -b "feature/codex-${WT_ID}" "$WORKTREE_PATH" "$BASE_REF"
 HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH" \
   "タスク内容。完了前にこの worktree で exactly one git commit を作成してください。"
@@ -366,10 +368,11 @@ cat "$CODEX_PROMPT" | HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.clau
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH"
 rm -f "$CODEX_PROMPT"
 
-# Lead review 後に承認されたら range を取り込む
+# Lead review 後に topic branch を push して PR を作成する
 git -C "$WORKTREE_PATH" diff "$BASE_REF..HEAD"
-WORKTREE_HEAD="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"
-git cherry-pick --no-commit "$BASE_REF..$WORKTREE_HEAD"
+WORKTREE_BRANCH="$(git -C "$WORKTREE_PATH" branch --show-current)"
+git -C "$WORKTREE_PATH" push -u origin "$WORKTREE_BRANCH"
+gh pr create --base "${BASE_BRANCH:-main}" --head "$WORKTREE_BRANCH" --fill
 ```
 
 companion は App Server Protocol 経由で Codex と通信し、
@@ -408,7 +411,7 @@ Lead (this agent)
 5. `node "${HARNESS_PLUGIN_ROOT}/scripts/generate-sprint-contract.js"` で `sprint-contract.json` を生成
 6. `bash "${HARNESS_PLUGIN_ROOT}/scripts/enrich-sprint-contract.sh"` で Reviewer 観点を加え、`bash "${HARNESS_PLUGIN_ROOT}/scripts/ensure-sprint-contract-ready.sh"` で未承認なら停止
 
-**Phase B: Delegate（Worker spawn → 必要時 Advisor → レビュー → cherry-pick）**:
+**Phase B: Delegate（Worker spawn → 必要時 Advisor → レビュー → topic PR）**:
 
 各タスクについて以下を**逐次**実行する（依存順）:
 
@@ -571,33 +574,14 @@ for task in execution_order:
     if backend == "claude":
         close_agent({ target: worker_id })
 
-    # B-7. APPROVE → trunk に cherry-pick（feature ブランチ経由）
-    # Worker の Branch Guard により trunk HEAD は動かず、commit は feature ブランチ上にある想定
+    # B-7. APPROVE → topic branch を push して PR を作成
     if verdict == "APPROVE":
-        TRUNK=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
-        git checkout "$TRUNK"  # safety: 既に trunk なら no-op
-        # feature ブランチの commit が既に trunk にある（Branch Guard 失敗時のフォールバック）か確認
-        if git("merge-base", "--is-ancestor", latest_commit, "HEAD"):
-            pass  # 既に trunk 上 — cherry-pick 不要（再入防止）
-        else:
-            if backend == "claude":
-                git cherry-pick --no-commit {latest_commit}  # feature branch → trunk
-            else:
-                git cherry-pick --no-commit {worker_result.baseCommit}..{latest_commit}  # companion range → trunk
-            git commit -m "{task.内容}"
-        # Worker の worktree を remove してから feature ブランチを削除
+        git("-C", worker_result.worktreePath, "push", "-u", "origin", worker_result.branch)
+        gh("pr", "create", "--base", default_branch, "--head", worker_result.branch)
+        Plans.md: task.status = "cc:WIP [PR #{number}: review/CI pending]"
+        # Worker の worktree を remove。branch cleanup は merge 後に行う
         if worker_result.worktreePath:
             git worktree remove {worker_result.worktreePath} --force
-        if worker_result.branch and worker_result.branch not in ["main", "master"] and worker_result.branch != TRUNK:
-            git branch -D {worker_result.branch}
-        Plans.md: task.status = "cc:完了 [{hash}]"
-        # auto-checkpoint 記録（冪等性ガード (c)）
-        # Plans.md 書き換え直後に呼ぶ。失敗しても fail-open（|| true）でループを止めない
-        HASH=$(git rev-parse --short HEAD)
-        REVIEW_RESULT_PATH=".claude/state/review-results/${task.number}.review-result.json"
-        bash "${HARNESS_PLUGIN_ROOT}/scripts/auto-checkpoint.sh" \
-            "${task.number}" "${HASH}" "${contract_path}" "${REVIEW_RESULT_PATH}" \
-            || true  # fail-open: harness-mem 未起動環境でも継続
     else:
         → ユーザーにエスカレーション
 
@@ -800,7 +784,7 @@ Breezing モードでは **Lead** がレビューループを実行する（上�
 2. Lead が Codex exec でレビュー（優先）/ Reviewer agent（フォールバック）
 3. REQUEST_CHANGES → Lead が `send_input` で Worker に修正指示し、`wait_agent` で再応答を待つ → Worker が amend
 4. 修正後、再レビュー（`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3` 回まで）
-5. APPROVE → Lead が trunk（デフォルトブランチ）に cherry-pick → Plans.md を `cc:完了 [{hash}]` に更新
+5. APPROVE → Lead が topic branch を push して PR を作成。formal review・required CI・GitHub merge receipt 後に `harness-sync` が別 marker PR で `cc:完了 [merge-sha]` を記録
 
 ## A lane PR の自動レビューと merge gate
 
