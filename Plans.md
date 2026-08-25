@@ -201,6 +201,6 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 143.1 | `[lane:gate] [tdd:required]` `REQUEST_CHANGES` を受けた PR review gate が current receipt を無効化し、merge を拒否するようにする。 | RED: 同一 HEAD に APPROVE receipt を作った後に REQUEST_CHANGES を record しても `verify` が通る。GREEN: REQUEST_CHANGES の record 後は receipt が無く、`verify` / `merge --dry-run` が失敗する。PRなし、artifact/provenance/report digest の照合は既存どおり fail closed。 | 142.1, 142.2 | cc:WIP |
+| 143.1 | `[lane:gate] [tdd:required]` `REQUEST_CHANGES` を受けた PR review gate が current receipt を無効化し、merge を拒否するようにする。 | RED: 同一 HEAD に APPROVE receipt を作った後に REQUEST_CHANGES を record しても `verify` が通る。GREEN: REQUEST_CHANGES の record 後は receipt が無く、`verify` / `merge --dry-run` が失敗する。PRなし、artifact/provenance/report digest の照合は既存どおり fail closed。 | 142.1, 142.2 | cc:完了 [5ad182b / PR #9] |
 
 ---
