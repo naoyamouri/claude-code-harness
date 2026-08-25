@@ -212,8 +212,8 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 144.1 | `[lane:gate] [tdd:required]` source Harness の work / breezing / cursor-do / loop / sync / plan を PR-first と `cc:blocked` 契約へ統合する。 | RED: core skill に default branch `cherry-pick` / merge 直後の `cc:done` が残る静的契約 test。GREEN: worker は topic branch/PR だけを渡し、merge 後に harness-sync と marker PR を行う。`cc:done` は merge receipt 後だけ。mirror check と focused contract test が PASS。 | - | cc:WIP |
-| 144.2 | `[lane:gate] [tdd:required]` Codex user install に review gate / result writer / PR closeout helper を配布し、stale helper を検出できるようにする。 | installer と generated Codex package が 3 helper を同梱し、temp CODEX_HOME への user install で executable と current workflow marker を検証する。既存 package test が PASS。 | 144.1 | cc:TODO |
+| 144.1 | `[lane:gate] [tdd:required]` source Harness の work / breezing / cursor-do / loop / sync / plan を PR-first と `cc:blocked` 契約へ統合する。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。GREEN: worker は topic branch/PR だけを渡し、merge 後に harness-sync と marker PR を行う。`cc:done` は merge receipt 後だけ。mirror check と focused contract test が PASS。 | - | cc:WIP |
+| 144.2 | `[lane:gate] [tdd:required]` Codex user install に review gate / result writer / PR closeout helper を配布し、stale helper を検出できるようにする。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。installer と generated Codex package が 3 helper を同梱し、temp CODEX_HOME への user install で executable と current workflow marker を検証する。既存 package test が PASS。 | 144.1 | cc:TODO |
 | 144.3 | `[lane:fast]` workflow/review/release spec を PR-first 契約と marker semantics に合わせ、Plans の canonical marker table を英語 writer family + `cc:blocked` に整える。 | `docs/spec/workflow-review-and-release.md` と Plans marker contract が同じ遷移を示し、legacy read compatibility を維持する。 | 144.1 | cc:TODO |
 | 144.4 | `[lane:gate]` mirror/distribution と plugin validation を統合検証する。 | `sync-skill-mirrors --check`、workflow contract test、`test-codex-package.sh`、`tests/validate-plugin.sh`、consistency check が PASS。 | 144.1, 144.2, 144.3 | cc:TODO |
 

@@ -72,7 +72,7 @@ breezing --no-discuss all       # 計画議論スキップで全タスク完走
 | `--cursor` | `--backend cursor` の別名 | false |
 | `--codex` | `--backend codex` の別名 | false |
 | `--max-workers N` | ready task の同時 spawn 数上限（breezing 固有オプション）。`1` で旧来の直列挙動 | max |
-| `--no-commit` | 非対応（Breezing では Worker の一時 commit と Lead の cherry-pick が必須） | - |
+| `--no-commit` | 非対応（Breezing では Worker の一時 commit と topic PR が必須） | - |
 | `--no-discuss` | 計画議論スキップ | false |
 
 ## Execution
@@ -427,7 +427,7 @@ Lead はこの JSON を解析して commit hash とファイル一覧を取得�
 
 全タスク完了後、Lead が以下の手順でリッチ完了報告を生成:
 
-1. `git log --oneline {session_base_ref}..HEAD` で全 cherry-pick コミットを収集
+1. `git log --oneline {session_base_ref}..HEAD` で topic branch の全 commit を収集
 2. `git diff --stat {session_base_ref}..HEAD` で全体の変更規模を取得
 3. Plans.md の残タスクを抽出
 4. Breezing テンプレートに従い出力

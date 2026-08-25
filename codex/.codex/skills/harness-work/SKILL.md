@@ -123,7 +123,7 @@ cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lea
 
 ### PR-first integration contract
 
-すべての backend は **topic branch → PR → formal review → CI → GitHub merge** で default branch に入る。Lead は main を checkout/cherry-pick しない。review/CI/権限/人間判断の待機は `cc:blocked [reason]`、GitHub merge receipt 後の `cc:完了 [merge-sha]` は `harness-sync` が別 marker PR で記録する。
+すべての backend は **topic branch → PR → formal review → CI → GitHub merge** で default branch に入る。Lead は default branch を直接統合しない。review/CI/権限/人間判断の待機は `cc:blocked [reason]`、GitHub merge receipt 後の `cc:完了 [merge-sha]` は `harness-sync` が別 marker PR で記録する。
 
 ## オプション
 
@@ -356,7 +356,7 @@ backend=`cursor` / `codex` の場合は native Worker spawn を使わず、task 
 BASE_REF="$(git rev-parse HEAD)"
 WT_ID="codex-$(date +%Y%m%d-%H%M%S)-$$"
 WORKTREE_PATH=".claude/worktrees/${WT_ID}"
-git worktree add -b "codex-work/${WT_ID}" "$WORKTREE_PATH" "$BASE_REF"
+git worktree add -b "feature/codex-${WT_ID}" "$WORKTREE_PATH" "$BASE_REF"
 HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH" \
   "タスク内容。完了前にこの worktree で exactly one git commit を作成してください。"
@@ -368,10 +368,11 @@ cat "$CODEX_PROMPT" | HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.clau
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH"
 rm -f "$CODEX_PROMPT"
 
-# Lead review 後に承認されたら range を取り込む
+# Lead review 後に topic branch を push して PR を作成する
 git -C "$WORKTREE_PATH" diff "$BASE_REF..HEAD"
-WORKTREE_HEAD="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"
-git cherry-pick --no-commit "$BASE_REF..$WORKTREE_HEAD"
+WORKTREE_BRANCH="$(git -C "$WORKTREE_PATH" branch --show-current)"
+git -C "$WORKTREE_PATH" push -u origin "$WORKTREE_BRANCH"
+gh pr create --base "${BASE_BRANCH:-main}" --head "$WORKTREE_BRANCH" --fill
 ```
 
 companion は App Server Protocol 経由で Codex と通信し、
@@ -410,7 +411,7 @@ Lead (this agent)
 5. `node "${HARNESS_PLUGIN_ROOT}/scripts/generate-sprint-contract.js"` で `sprint-contract.json` を生成
 6. `bash "${HARNESS_PLUGIN_ROOT}/scripts/enrich-sprint-contract.sh"` で Reviewer 観点を加え、`bash "${HARNESS_PLUGIN_ROOT}/scripts/ensure-sprint-contract-ready.sh"` で未承認なら停止
 
-**Phase B: Delegate（Worker spawn → 必要時 Advisor → レビュー → cherry-pick）**:
+**Phase B: Delegate（Worker spawn → 必要時 Advisor → レビュー → topic PR）**:
 
 各タスクについて以下を**逐次**実行する（依存順）:
 
