@@ -92,7 +92,9 @@ build_body() {
   fi
 
   body+="$(render_finding_lines "$merged_file" 'accepted_findings' 'Accepted findings')"
+  body+=$'\n\n'
   body+="$(render_finding_lines "$merged_file" 'rejected_findings' 'Rejected findings')"
+  body+=$'\n\n'
 
   body+="## Release preflight warnings\n\n"
   local warnings

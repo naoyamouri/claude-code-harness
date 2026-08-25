@@ -213,6 +213,8 @@ grep -Fq 'acc-1' <<<"${body_text}" || fail "(f) body must include accepted findi
 grep -Fq 'rej-1' <<<"${body_text}" || fail "(f) body must include rejected finding id"
 grep -Fq 'Accepted findings' <<<"${body_text}" || fail "(f) body must sectionize accepted findings"
 grep -Fq 'Rejected findings' <<<"${body_text}" || fail "(f) body must sectionize rejected findings"
+grep -Fq $'Default dry-run prevents accidental gh side effects\n\n## Rejected findings' <<<"${body_text}" \
+  || fail "(f) body must separate finding sections with a blank line"
 
 # (g) harness-review path must not auto push / create PR
 review_hits="$(rg -n 'gh pr create|git push' "${PROJECT_ROOT}/skills/harness-review" 2>/dev/null || true)"
