@@ -136,7 +136,7 @@ PAYLOAD_C="${TMP_DIR}/payload-c.json"
 (
   cd "${DETACHED_REPO}"
   PATH="${MOCK_BIN_DIR}:${PATH}" bash "${CLOSEOUT}" build \
-    --base main \
+    --base origin/main \
     --head task/72.1.5 \
     --evidence "${EVIDENCE}" \
     --out "${PAYLOAD_C}"
@@ -152,7 +152,7 @@ set -e
 
 [ "${push_rc}" -eq 0 ] || fail "(c) push --yes should exit 0 on attached branch, got ${push_rc}"
 grep -Fq 'pr create' "${GH_CALLS}" || fail "(c) push --yes must call gh pr create"
-grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must pass --base"
+grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must normalize origin/ from --base"
 grep -Fq -- '--head task/72.1.5' "${GH_CALLS}" || fail "(c) gh pr create must pass --head"
 grep -Fq -- '--title' "${GH_CALLS}" || fail "(c) gh pr create must pass --title"
 grep -Fq -- '--body' "${GH_CALLS}" || fail "(c) gh pr create must pass --body"

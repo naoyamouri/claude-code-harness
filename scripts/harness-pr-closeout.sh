@@ -333,6 +333,9 @@ cmd_push() {
   base_ref="$(json_get "$payload_file" '.base_ref')"
   head_ref="$(json_get "$payload_file" '.head_ref')"
   body="$(json_get "$payload_file" '.body')"
+  case "$base_ref" in
+    origin/*) base_ref="${base_ref#origin/}" ;;
+  esac
 
   gh pr create \
     --base "$base_ref" \
