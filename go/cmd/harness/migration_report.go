@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -118,8 +119,8 @@ func buildExistingUserMigrationReport(projectRoot string, env migrationReportEnv
 	pluginHits := findClaudeHarnessPluginCaches(env.ClaudePluginCache)
 	activeInstalls, registryObserved := readActiveClaudePluginInstalls(env.ClaudePluginRegistry)
 	activeHits := activeClaudePluginCacheHits(activeInstalls, pluginHits)
-	report.Entries = append(report.Entries, reportClaudePluginCache(env.ClaudePluginCache, currentVersion, pluginHits, activeInstalls, registryObserved))
-	if registryObserved {
+	report.Entries = append(report.Entries, reportClaudePluginCache(projectRoot, env.ClaudePluginCache, currentVersion, pluginHits, activeInstalls, registryObserved))
+	if registryObserved && currentVersion != "" {
 		report.Entries = append(report.Entries, reportClaudeSlashEntries(activeHits))
 	} else {
 		report.Entries = append(report.Entries, reportClaudeSlashEntries(nil))
@@ -317,20 +318,36 @@ func pathWithin(path, root string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
-func missingActiveRuntimeHelpers(active []activeClaudePluginInstall) []string {
+func missingActiveRuntimeHelpers(projectRoot string, active []activeClaudePluginInstall) []string {
 	var missing []string
 	for _, install := range active {
 		for _, helper := range migrationRuntimeHelpers {
-			path := filepath.Join(install.InstallPath, "scripts", helper)
-			if !pathExists(path) {
-				missing = append(missing, path)
+			sourcePath := filepath.Join(projectRoot, "scripts", helper)
+			activePath := filepath.Join(install.InstallPath, "scripts", helper)
+			source, sourceErr := os.ReadFile(sourcePath)
+			activeData, activeErr := os.ReadFile(activePath)
+			info, infoErr := os.Stat(activePath)
+			if sourceErr != nil || activeErr != nil || infoErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || !bytes.Equal(source, activeData) {
+				missing = append(missing, activePath)
 			}
 		}
 	}
 	return missing
 }
 
-func reportClaudePluginCache(cacheRoot, currentVersion string, hits []pluginCacheHit, active []activeClaudePluginInstall, registryObserved bool) migrationReportEntry {
+func reportClaudePluginCache(projectRoot, cacheRoot, currentVersion string, hits []pluginCacheHit, active []activeClaudePluginInstall, registryObserved bool) migrationReportEntry {
+	if currentVersion == "" {
+		return migrationReportEntry{
+			Area:             "Claude plugin cache",
+			Status:           "not_observed",
+			Path:             cacheRoot,
+			Evidence:         "Harness source plugin version was unreadable; active installation freshness cannot be determined",
+			Impact:           "Active Harness version cannot be inferred without a readable source release version.",
+			BackupLocation:   "Claude Code plugin manager cache",
+			RollbackProposal: "Restore a valid source .claude-plugin/plugin.json, then rerun the report.",
+			SupportBoundary:  "not_observed != absent; report only and no cache entries are changed.",
+		}
+	}
 	if !registryObserved {
 		return migrationReportEntry{
 			Area:             "Claude plugin cache",
@@ -373,7 +390,7 @@ func reportClaudePluginCache(cacheRoot, currentVersion string, hits []pluginCach
 			stale = append(stale, fmt.Sprintf("%s version=%s current=%s", install.InstallPath, install.Version, currentVersion))
 		}
 	}
-	stale = append(stale, missingActiveRuntimeHelpers(active)...)
+	stale = append(stale, missingActiveRuntimeHelpers(projectRoot, active)...)
 	if len(stale) > 0 {
 		return migrationReportEntry{
 			Area:             "Claude plugin cache",
