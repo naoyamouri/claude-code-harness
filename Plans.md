@@ -218,3 +218,19 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | 144.4 | `[lane:gate]` mirror/distribution と plugin validation を統合検証する。 | `sync-skill-mirrors --check`、workflow contract test、`test-codex-package.sh`、`tests/validate-plugin.sh`、consistency check が PASS。 | 144.1, 144.2, 144.3 | cc:done [33ac087] |
 
 ---
+
+## Phase 145: Active distribution freshness + runtime helper closure (2026-08-26) — cc:WIP
+
+**Purpose**: release package → installed cache sync → active-install diagnosis の閉路を
+最小の既存経路でつなぎ、旧 helper の配布漏れと履歴 cache の誤警告を防ぐ。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 145.1 | `[lane:gate] [tdd:required]` plugin cache sync の explicit helper closure に PR review gate / result writer / closeout を追加する | stale/absent fixture から cache と marketplace copy の3 helperが source と byte 一致かつ executable に復元される。全 `scripts/` copy や新規 registry は導入しない | - | cc:WIP |
+| 145.2 | `[lane:gate] [tdd:required]` migration doctor を active/current・active/stale・historical-only・registry not_observed に分類する | `installed_plugins.json` を read-only で permissive に読み、active stale だけが exact update command を示す。history-only は informational、更新/削除は一切しない | 145.1 | cc:TODO |
+| 145.3 | `[lane:gate]` 既存 validation 経路に focused regression を接続する | `tests/test-sync-plugin-cache.sh`、Go migration report tests、`tests/validate-plugin.sh` と既存 mirror/package checks が PASS。Codex installer の新しい `--check` は必要性が出た時の follow-up に留める | 145.1, 145.2 | cc:TODO |
+
+**Non-goals**: plugin の自動更新、historical cache の自動削除、runtime helper の
+全 scripts copy、配布用の新しい universal registry は導入しない。
+
+---
