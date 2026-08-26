@@ -21,6 +21,7 @@ Change history for claude-code-harness.
 - PR review receipt は `harness-review code` の workflow / mode と人向け report の SHA-256 を必須照合し、generic `reviewer` の自由文・正規化JSONだけでは agent merge を通せないようにした。後続 `REQUEST_CHANGES` は同一 HEAD の古い APPROVE receipt を無効化する
 - 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` で全CIを対象branchへ起動するようにした
 - GitHub Freeのprivate repositoryでbranch-protection APIが返す既知の403では、review済みbase/headの再照合とhead pinでagent mergeを続行できるようにした。strict protectionが利用できる場合以外のAPIエラーは従来どおり拒否する
+- Claude plugin配布を更新し、PR review gate・review result writer・PR closeout helperを同じversionへ同期した。旧cacheが新しい手順だけを読み、gate本体を見つけられない状態を解消した
 
 ## [5.9.0] - 2026-08-17
 
@@ -6087,7 +6088,8 @@ Purpose: 自己修正ループ失敗時に「止まるだけ」から「次の�
 
 For v2.9.x and earlier, see [GitHub Releases](https://github.com/Chachamaru127/claude-code-harness/releases).
 
-[Unreleased]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.0...HEAD
+[Unreleased]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.1...HEAD
+[5.9.1]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.0...v5.9.1
 [5.9.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.8.0...v5.9.0
 [5.8.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.6.0...v5.7.0
