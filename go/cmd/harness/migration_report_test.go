@@ -40,8 +40,8 @@ func TestBuildExistingUserMigrationReportDetectsRisks(t *testing.T) {
 		HarnessMemHome:    harnessMemHome,
 	})
 
-	assertReportEntry(t, report, "Claude plugin cache", "warn", "stale plugin cache")
-	assertReportEntry(t, report, "Claude slash entries", "warn", "missing harness-work")
+	assertReportEntry(t, report, "Claude plugin cache", "not_observed", "registry was missing or unreadable")
+	assertReportEntry(t, report, "Claude slash entries", "not_observed", "No cached Harness plugin skills")
 	assertReportEntry(t, report, "Codex duplicate local skills", "warn", "harness-plan")
 	assertReportEntry(t, report, "Codex old symlinks", "warn", "broken symlink")
 	assertReportEntry(t, report, "Codex backup path", "ok", "backups/setup-codex")
@@ -94,6 +94,65 @@ func TestPrintExistingUserMigrationReportDocumentsRollbackBoundary(t *testing.T)
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
 	}
+}
+
+func TestBuildExistingUserMigrationReportClassifiesOnlyActiveClaudePlugin(t *testing.T) {
+	projectRoot := t.TempDir()
+	home := t.TempDir()
+	cacheRoot := filepath.Join(home, ".claude", "plugins", "cache")
+	registryPath := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
+	current := filepath.Join(cacheRoot, "claude-code-harness-current")
+	historical := filepath.Join(cacheRoot, "claude-code-harness-historical")
+
+	writeTestFile(t, filepath.Join(projectRoot, ".claude-plugin", "plugin.json"), `{"name":"claude-code-harness","version":"5.9.1","skills":["./skills/"]}`)
+	writeTestFile(t, filepath.Join(current, "plugin.json"), `{"name":"claude-code-harness","version":"5.9.1","skills":["./skills/"]}`)
+	writeTestFile(t, filepath.Join(historical, "plugin.json"), `{"name":"claude-code-harness","version":"5.8.0","skills":["./skills/"]}`)
+	for _, skill := range migrationRequiredSkills {
+		writeSkill(t, filepath.Join(current, "skills", skill), skill)
+	}
+	for _, helper := range []string{"harness-pr-review-gate.sh", "write-review-result.sh", "harness-pr-closeout.sh"} {
+		sourceHelper := filepath.Join(projectRoot, "scripts", helper)
+		activeHelper := filepath.Join(current, "scripts", helper)
+		writeTestFile(t, sourceHelper, "#!/bin/sh\necho current\n")
+		writeTestFile(t, activeHelper, "#!/bin/sh\necho current\n")
+		if err := os.Chmod(sourceHelper, 0o755); err != nil {
+			t.Fatalf("chmod source helper: %v", err)
+		}
+		if err := os.Chmod(activeHelper, 0o755); err != nil {
+			t.Fatalf("chmod active helper: %v", err)
+		}
+	}
+	writeTestFile(t, registryPath, `{"plugins":{"claude-code-harness@claude-code-harness-marketplace":[{"version":"5.9.1","installPath":"`+current+`"}]}}`)
+
+	env := migrationReportEnv{
+		Home:                 home,
+		CodexHome:            filepath.Join(home, ".codex"),
+		ClaudePluginCache:    cacheRoot,
+		ClaudePluginRegistry: registryPath,
+		HarnessMemHome:       filepath.Join(home, ".harness-mem"),
+	}
+	report := buildExistingUserMigrationReport(projectRoot, env)
+	assertReportEntry(t, report, "Claude plugin cache", "ok", "active plugin")
+
+	writeTestFile(t, filepath.Join(current, "scripts", "harness-pr-review-gate.sh"), "#!/bin/sh\necho stale\n")
+	if err := os.Chmod(filepath.Join(current, "scripts", "harness-pr-review-gate.sh"), 0o755); err != nil {
+		t.Fatalf("chmod stale helper: %v", err)
+	}
+	report = buildExistingUserMigrationReport(projectRoot, env)
+	assertReportEntry(t, report, "Claude plugin cache", "warn", "harness-pr-review-gate.sh")
+
+	writeTestFile(t, registryPath, `{"plugins":{"claude-code-harness@claude-code-harness-marketplace":[{"version":"5.8.0","installPath":"`+historical+`"}]}}`)
+	report = buildExistingUserMigrationReport(projectRoot, env)
+	assertReportEntry(t, report, "Claude plugin cache", "warn", "claude plugin update claude-code-harness@claude-code-harness-marketplace")
+
+	writeTestFile(t, registryPath, `{"plugins":{}}`)
+	report = buildExistingUserMigrationReport(projectRoot, env)
+	assertReportEntry(t, report, "Claude plugin cache", "observed", "historical cache only")
+
+	unknownProjectRoot := t.TempDir()
+	writeTestFile(t, registryPath, `{"plugins":{"claude-code-harness@claude-code-harness-marketplace":[{"version":"5.9.1","installPath":"`+current+`"}]}}`)
+	report = buildExistingUserMigrationReport(unknownProjectRoot, env)
+	assertReportEntry(t, report, "Claude plugin cache", "not_observed", "source plugin version was unreadable")
 }
 
 func writeSkill(t *testing.T, dir, name string) {

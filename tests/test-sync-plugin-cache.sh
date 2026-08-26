@@ -89,6 +89,16 @@ for file in "${required_cached_files[@]}"; do
   fi
 done
 
+for rel_path in "scripts/harness-pr-review-gate.sh" "scripts/write-review-result.sh" "scripts/harness-pr-closeout.sh"; do
+  for target_root in "${CACHE_DIR}" "${MARKETPLACE_DIR}"; do
+    target="${target_root}/${rel_path}"
+    if [[ ! -x "${target}" ]] || ! cmp -s "${ROOT_DIR}/${rel_path}" "${target}"; then
+      echo "sync-plugin-cache did not restore current executable helper: ${target}"
+      exit 1
+    fi
+  done
+done
+
 for dir in "${required_cached_dirs[@]}"; do
   if [[ ! -d "${dir}" ]]; then
     echo "sync-plugin-cache did not populate required directory: ${dir}"
