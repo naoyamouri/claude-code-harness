@@ -86,7 +86,6 @@ PR_IS_DRAFT=""
 PR_MERGE_STATE=""
 PR_MERGEABLE=""
 PR_REPO_IS_PRIVATE=""
-PR_REPO_OWNER=""
 
 origin_repo() {
   local url
@@ -265,8 +264,6 @@ require_strict_base_protection() {
         || die "could not verify whether $PR_REPO is private"
       PR_REPO_IS_PRIVATE="$(jq -r '.private' <<<"$repo_metadata")" \
         || die "could not read whether $PR_REPO is private"
-      PR_REPO_OWNER="$(jq -er '.owner.login' <<<"$repo_metadata")" \
-        || die "could not read $PR_REPO owner"
       [ "$PR_REPO_IS_PRIVATE" = "true" ] \
         || die "strict protection fallback is only available for private GitHub Free repositories"
       echo "pr-review-gate: GitHub Free private repository; strict base protection is unavailable, using reviewed base/head checks" >&2
@@ -283,17 +280,7 @@ require_strict_base_protection() {
 }
 
 require_free_private_merge_conditions() {
-  local checks comments reviewed_at
-  reviewed_at="$(jq -er '.reviewed_at' "$(receipt_path "$PR_NUMBER")")" \
-    || die "could not read the APPROVE receipt timestamp"
-  comments="$(gh api "repos/$PR_REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate --slurp 2>/dev/null)" \
-    || die "private GitHub Free merge requires a readable user approval comment"
-  jq -e --arg owner "$PR_REPO_OWNER" --arg head "$HEAD_SHA" --arg reviewed_at "$reviewed_at" '
-    flatten | any(.[]; .user.login == $owner
-      and .body == ("harness merge " + $head)
-      and .created_at >= $reviewed_at)
-  ' <<<"$comments" >/dev/null \
-    || die "private GitHub Free merge requires a post-review comment from $PR_REPO_OWNER: harness merge $HEAD_SHA"
+  local checks
   [ "$PR_IS_DRAFT" = "false" ] \
     || die "private GitHub Free merge requires a non-draft PR"
   [ "$PR_MERGE_STATE" = "CLEAN" ] && [ "$PR_MERGEABLE" = "MERGEABLE" ] \

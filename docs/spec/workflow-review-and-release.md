@@ -129,7 +129,9 @@ base advances after the helper's final verification.
 Private repositories on GitHub Free cannot read that branch-protection endpoint:
 GitHub returns its documented 403 upgrade response. Only for that exact response,
 Harness instead rechecks the live PR base and head immediately before a
-`--match-head-commit` merge, then verifies the result on GitHub. This is a
+`--match-head-commit` merge, requires a non-draft `CLEAN`/`MERGEABLE` PR and
+successful completion of every reported CI check, then verifies the result on
+GitHub. It does not require a separate owner approval comment. This is a
 reduced guarantee, not an equivalent: a base update can still race the merge.
 `strict: false`, authentication failures, and other API failures remain
 fail-closed.

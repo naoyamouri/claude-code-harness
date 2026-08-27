@@ -234,3 +234,13 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 全 scripts copy、配布用の新しい universal registry は導入しない。
 
 ---
+
+## Phase 146: Free private merge の手動コメント gate を廃止する (2026-08-28)
+
+**Purpose**: GitHub Free private repository の既知403フォールバックで、既に機械検証済みのPRに対する `harness merge <sha>` コメントを不要にする。review receipt・live PR base/head 再照合・head pin・非Draft/CLEAN・全CI成功は維持する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 146.1 | `[lane:gate] [tdd:required]` private Free merge fallback から owner の承認コメント照会だけを除去する。 | RED: コメントAPIが利用不能でも、current receipt・live base/head・非Draft/CLEAN・全CI SUCCESS のPRは `merge --dry-run` が成功する。GREEN: 上記以外は既存どおり拒否し、focused gate test と plugin validation が通る。 | - | cc:WIP [PR #17: review/CI pending] |
+
+---
