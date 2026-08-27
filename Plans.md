@@ -241,6 +241,6 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 146.1 | `[lane:gate] [tdd:required]` private Free merge fallback から owner の承認コメント照会だけを除去する。 | RED: コメントAPIが利用不能でも、current receipt・live base/head・非Draft/CLEAN・全CI SUCCESS のPRは `merge --dry-run` が成功する。GREEN: 上記以外は既存どおり拒否し、focused gate test と plugin validation が通る。 | - | cc:WIP |
+| 146.1 | `[lane:gate] [tdd:required]` private Free merge fallback から owner の承認コメント照会だけを除去する。 | RED: コメントAPIが利用不能でも、current receipt・live base/head・非Draft/CLEAN・全CI SUCCESS のPRは `merge --dry-run` が成功する。GREEN: 上記以外は既存どおり拒否し、focused gate test と plugin validation が通る。 | - | cc:WIP [PR #17: review/CI pending] |
 
 ---
