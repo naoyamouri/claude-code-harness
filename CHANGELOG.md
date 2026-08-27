@@ -6,6 +6,10 @@ Change history for claude-code-harness.
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub Free の private repository で branch-protection API が既知の403を返す場合、agent merge は owner の `harness merge <sha>` コメントを求めず、review receipt・live PR base/head・非Draft/CLEAN・全CI成功を確認して続行するようにした
+
 ## [5.9.1] - 2026-08-26
 
 ### Changed
