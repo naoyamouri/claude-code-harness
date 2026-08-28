@@ -54,6 +54,9 @@ sync_file_to_dir() {
   local src="${PROJECT_ROOT}/${rel_path}"
   local dst="${target_dir}/${rel_path}"
   if [ -f "$src" ]; then
+    if [ -e "$dst" ] && [ "$src" -ef "$dst" ]; then
+      return
+    fi
     mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
   fi
@@ -91,6 +94,9 @@ sync_dir_to_dir() {
   local src="${PROJECT_ROOT}/${rel_path}"
   local dst="${target_dir}/${rel_path}"
   if [ -d "$src" ]; then
+    if [ -e "$dst" ] && [ "$src" -ef "$dst" ]; then
+      return
+    fi
     rm -rf "$dst"
     mkdir -p "$dst"
 

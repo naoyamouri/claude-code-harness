@@ -36,6 +36,23 @@ printf 'stale\n' > "${MARKETPLACE_DIR}/skills/harness-release-internal/SKILL.md"
 printf 'stale\n' > "${MARKETPLACE_DIR}/docs/private/stale-note.md"
 printf '{"hooks":{"SessionStart":[{"hooks":[{"command":"\"${CLAUDE_PLUGIN_ROOT}/bin/harness\" hook session-start"}]}]}}' > "${MARKETPLACE_DIR}/.claude-plugin/hooks.json"
 
+# SessionStart can run from the versioned plugin cache itself. That path must
+# not copy files or directories onto themselves (notably codex/).
+ACTIVE_BIN="${TMP_HOME}/active-bin"
+mkdir -p "${CACHE_DIR}/bin" "${CACHE_DIR}/scripts" "${CACHE_DIR}/.claude-plugin" \
+  "${CACHE_DIR}/codex/.codex/skills/harness-work" "${ACTIVE_BIN}"
+cp "${ROOT_DIR}/bin/harness" "${CACHE_DIR}/bin/harness"
+cp "${ROOT_DIR}/scripts/sync-plugin-cache.sh" "${CACHE_DIR}/scripts/sync-plugin-cache.sh"
+cp "${ROOT_DIR}/scripts/harness-pr-review-gate.sh" "${CACHE_DIR}/scripts/harness-pr-review-gate.sh"
+cp "${ROOT_DIR}/.claude-plugin/plugin.json" "${CACHE_DIR}/.claude-plugin/plugin.json"
+cp "${ROOT_DIR}/VERSION" "${CACHE_DIR}/VERSION"
+cp "${ROOT_DIR}/codex/.codex/skills/harness-work/SKILL.md" "${CACHE_DIR}/codex/.codex/skills/harness-work/SKILL.md"
+chmod +x "${CACHE_DIR}/bin/harness"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "${ACTIVE_BIN}/harness"
+chmod +x "${ACTIVE_BIN}/harness"
+HOME="${TMP_HOME}" CLAUDE_PLUGIN_ROOT="${CACHE_DIR}" PATH="${ACTIVE_BIN}:$PATH" \
+  bash "${CACHE_DIR}/scripts/sync-plugin-cache.sh" >/dev/null 2>&1
+
 HOME="${TMP_HOME}" CLAUDE_PLUGIN_ROOT="${ROOT_DIR}" bash "${ROOT_DIR}/scripts/sync-plugin-cache.sh" >/dev/null 2>&1
 
 # 間違った CLAUDE_PLUGIN_ROOT が来ても、script path から実際の plugin root へ
