@@ -226,9 +226,9 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 145.1 | `[lane:gate] [tdd:required]` plugin cache sync の explicit helper closure に PR review gate / result writer / closeout を追加する | stale/absent fixture から cache と marketplace copy の3 helperが source と byte 一致かつ executable に復元される。全 `scripts/` copy や新規 registry は導入しない | - | cc:WIP [PR #16: review/CI pending] |
-| 145.2 | `[lane:gate] [tdd:required]` migration doctor を active/current・active/stale・historical-only・registry not_observed に分類する | `installed_plugins.json` を read-only で permissive に読み、active stale だけが exact update command を示す。history-only は informational、更新/削除は一切しない | 145.1 | cc:WIP [PR #16: review/CI pending] |
-| 145.3 | `[lane:gate]` 既存 validation 経路に focused regression を接続する | `tests/test-sync-plugin-cache.sh`、Go migration report tests、`tests/validate-plugin.sh` と既存 mirror/package checks が PASS。Codex installer の新しい `--check` は必要性が出た時の follow-up に留める | 145.1, 145.2 | cc:WIP [PR #16: review/CI pending] |
+| 145.1 | `[lane:gate] [tdd:required]` plugin cache sync の explicit helper closure に PR review gate / result writer / closeout を追加する | stale/absent fixture から cache と marketplace copy の3 helperが source と byte 一致かつ executable に復元される。全 `scripts/` copy や新規 registry は導入しない | - | cc:done [PR #16 / 6dcea00] |
+| 145.2 | `[lane:gate] [tdd:required]` migration doctor を active/current・active/stale・historical-only・registry not_observed に分類する | `installed_plugins.json` を read-only で permissive に読み、active stale だけが exact update command を示す。history-only は informational、更新/削除は一切しない | 145.1 | cc:done [PR #16 / 6dcea00] |
+| 145.3 | `[lane:gate]` 既存 validation 経路に focused regression を接続する | `tests/test-sync-plugin-cache.sh`、Go migration report tests、`tests/validate-plugin.sh` と既存 mirror/package checks が PASS。Codex installer の新しい `--check` は必要性が出た時の follow-up に留める | 145.1, 145.2 | cc:done [PR #16 / 6dcea00] |
 
 **Non-goals**: plugin の自動更新、historical cache の自動削除、runtime helper の
 全 scripts copy、配布用の新しい universal registry は導入しない。
