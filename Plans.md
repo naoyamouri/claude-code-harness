@@ -251,6 +251,6 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 147.1 | `[lane:gate] [tdd:required]` plugin cache sync に Codex 配布ディレクトリを含める。 | RED: stale/absent fixture で cache と marketplace copy の `codex/.codex/skills/harness-work/SKILL.md` が source と一致しない。GREEN: 両コピーが source と byte 一致し、既存 private path 除外・helper closure・plugin validation を維持する。 | 145.1 | cc:WIP |
+| 147.1 | `[lane:gate] [tdd:required]` plugin cache sync に Codex 配布ディレクトリを含める。 | RED: stale/absent fixture で cache と marketplace copy の `codex/.codex/skills/harness-work/SKILL.md` が source と一致しない。GREEN: 両コピーが source と byte 一致し、既存 private path 除外・helper closure・plugin validation を維持する。 | 145.1 | cc:done [PR #20 / a7ef34d] |
 
 ---
