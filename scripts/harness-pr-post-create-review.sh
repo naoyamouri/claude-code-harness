@@ -44,7 +44,7 @@ cat >"$schema" <<'JSON'
     "report_markdown": {"type": "string", "minLength": 1},
     "review": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": ["verdict"],
       "properties": {"verdict": {"enum": ["APPROVE", "REQUEST_CHANGES"]}}
     }

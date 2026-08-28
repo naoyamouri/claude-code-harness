@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="${ROOT_DIR}/scripts/harness-pr-post-create-review.sh"
+grep -Fq '"additionalProperties": false' "$RUNNER" \
+  || { echo "formal review schema must be strict" >&2; exit 1; }
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pr-post-create-review.XXXXXX")"
 trap 'find "$TMP_DIR" -depth -delete' EXIT
 
