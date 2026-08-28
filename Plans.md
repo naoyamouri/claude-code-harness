@@ -261,8 +261,8 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 148.1 | `[lane:gate] [tdd:required]` Codex 用 PR closeout helper を実装する。 | `gh pr create` 成功後に live PR base/head を取得し、独立した read-only Codex review の Markdown report と `review-result.v1` を保存して既存 receipt gate に記録する。review が失敗または `REQUEST_CHANGES` の場合 receipt を残さず非ゼロで終了し、PR作成失敗時は reviewer を起動しない。RED: `docs/evidence/phase-148-tdd-red.md`。 | - | cc:WIP |
-| 148.2 | `[lane:gate] [tdd:required]` Codex の A lane PR 作成経路と配布検証を helper に統一する。 | Codex/workflow mirror が raw `gh pr create` ではなく helper を使い、package/user-install に helper が含まれる。focused fixture と `tests/validate-plugin.sh` が PASS。RED: `docs/evidence/phase-148-tdd-red.md`。 | 148.1 | cc:WIP |
+| 148.1 | `[lane:gate] [tdd:required]` Codex 用 PR closeout helper を実装する。 | `gh pr create` 成功後に live PR base/head を取得し、独立した read-only Codex review の Markdown report と `review-result.v1` を保存して既存 receipt gate に記録する。review が失敗または `REQUEST_CHANGES` の場合 receipt を残さず非ゼロで終了し、PR作成失敗時は reviewer を起動しない。RED: `docs/evidence/phase-148-tdd-red.md`。 | - | cc:blocked [全体検証で既存 cursor-agent alias test が失敗] |
+| 148.2 | `[lane:gate] [tdd:required]` Codex の A lane PR 作成経路と配布検証を helper に統一する。 | Codex/workflow mirror が raw `gh pr create` ではなく helper を使い、package/user-install に helper が含まれる。focused fixture と `tests/validate-plugin.sh` が PASS。RED: `docs/evidence/phase-148-tdd-red.md`。 | 148.1 | cc:blocked [148.1 の全体検証待ち] |
 
 **Non-goals**: SessionStart/Stop hook の timeout・JSON不正は harness-mem の別障害として扱い、この Phase で hook を追加・変更しない。raw GitHub CLI を使う任意の手作業まで強制しない。
 
