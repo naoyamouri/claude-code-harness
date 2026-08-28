@@ -153,8 +153,10 @@ range_review_count="$(grep -F -c 'git("-C", worker_result.worktreePath, "diff", 
   || fail "harness-work: initial and retry reviews must cover the full companion commit range"
 grep -Fq 'git -C "$WORKTREE_PATH" push -u origin "$WORKTREE_BRANCH"' "$WORK_SKILL" \
   || fail "harness-work: Codex approval must push its topic branch"
-grep -Fq 'gh pr create --base "${BASE_BRANCH:-main}" --head "$WORKTREE_BRANCH" --fill' "$WORK_SKILL" \
-  || fail "harness-work: Codex approval must create a PR"
+grep -Fq 'harness-pr-create-and-review.sh' "$WORK_SKILL" \
+  || fail "harness-work: Codex approval must use synchronous PR create-and-review"
+grep -Fq '(cd "$WORKTREE_PATH" && bash "$PR_CREATE_AND_REVIEW"' "$WORK_SKILL" \
+  || fail "harness-work: Codex approval must run closeout from its worktree"
 
 # 5. Default ON must affect review as an advisory cursor second-opinion, while
 # primary verdict remains on the brain.

@@ -8,6 +8,7 @@ usage() {
 Usage:
   scripts/harness-pr-review-gate.sh context
   scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE] [--review-report FILE]
+  scripts/harness-pr-review-gate.sh invalidate
   scripts/harness-pr-review-gate.sh verify --base REF
   scripts/harness-pr-review-gate.sh merge --base REF [--dry-run]
 USAGE
@@ -71,7 +72,7 @@ done
 
 HEAD_SHA="$(git rev-parse --verify HEAD)" || die "HEAD is unavailable"
 BASE_SHA=""
-if [ "$ACTION" != "context" ]; then
+if [ "$ACTION" != "context" ] && [ "$ACTION" != "invalidate" ]; then
   [ -n "$BASE_REF" ] || die "--base REF is required"
   BASE_SHA="$(git rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)" \
     || die "invalid base ref: $BASE_REF"
@@ -253,6 +254,14 @@ verify() {
     || die "receipt does not match current PR, base, or live HEAD"
 }
 
+invalidate() {
+  load_pr_context
+  local receipt
+  receipt="$(receipt_path "$PR_NUMBER")"
+  rm -f "$receipt"
+  echo "Invalidated review receipt for PR #$PR_NUMBER"
+}
+
 require_strict_base_protection() {
   local encoded_base_ref protection strict repo_metadata
   encoded_base_ref="$(jq -rn --arg value "$PR_BASE_REF" '$value | @uri')" \
@@ -323,6 +332,10 @@ case "$ACTION" in
   record)
     [ "$DRY_RUN" -eq 0 ] || die "--dry-run is only valid with merge"
     record
+    ;;
+  invalidate)
+    [ "$DRY_RUN" -eq 0 ] || die "--dry-run is only valid with merge"
+    invalidate
     ;;
   verify)
     [ "$DRY_RUN" -eq 0 ] || die "--dry-run is only valid with merge"

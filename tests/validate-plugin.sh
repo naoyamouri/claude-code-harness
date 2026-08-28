@@ -1278,6 +1278,12 @@ else
     fail_test "PR review gate contract failed — 'bash tests/test-pr-review-gate.sh' で詳細確認"
 fi
 
+if bash "$PLUGIN_ROOT/tests/test-pr-post-create-review.sh" > /dev/null 2>&1; then
+    pass_test "Codex PR 作成後 review は receipt を fail closed に記録します"
+else
+    fail_test "Codex PR post-create review contract failed — 'bash tests/test-pr-post-create-review.sh' で詳細確認"
+fi
+
 if bash "$PLUGIN_ROOT/tests/test-harness-release-governance.sh" > /dev/null 2>&1; then
     pass_test "harness-release は bare invocation / 未レビュー AskUserQuestion / review→commit→release gate / mirror sync を満たします"
 else

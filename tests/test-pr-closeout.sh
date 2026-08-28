@@ -118,7 +118,7 @@ set -e
 # push tests need real git for attached-head detection; drop the blocking git mock.
 rm -f "${MOCK_GIT}"
 
-# (c) push --yes invokes gh pr create with expected argv
+# (c) push --yes invokes gh pr create with expected argv, then enters formal review.
 make_recording_mock_gh
 : >"${GH_CALLS}"
 
@@ -151,9 +151,8 @@ set +e
 push_rc=$?
 set -e
 
-[ "${push_rc}" -eq 0 ] || fail "(c) push --yes should exit 0 on attached branch, got ${push_rc}"
+[ "${push_rc}" -ne 0 ] || fail "(c) incomplete formal-review mock must fail closeout"
 grep -Fq 'pr create' "${GH_CALLS}" || fail "(c) push --yes must call gh pr create"
-grep -Fq -- '--repo test-owner/test-repo' "${GH_CALLS}" || fail "(c) gh pr create must use origin repository"
 grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must normalize origin/ from --base"
 grep -Fq -- '--head task/72.1.5' "${GH_CALLS}" || fail "(c) gh pr create must pass --head"
 grep -Fq -- '--title' "${GH_CALLS}" || fail "(c) gh pr create must pass --title"

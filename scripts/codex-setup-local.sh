@@ -562,6 +562,8 @@ sync_named_children "$PLUGIN_DIR/codex/.codex/rules" "$target_root/rules" "Rules
 install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "write-review-result.sh"
 install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-review-gate.sh"
 install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-closeout.sh"
+install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-create-and-review.sh"
+install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "harness-pr-post-create-review.sh"
 
 if [ "$TARGET_MODE" = "project" ]; then
   copy_project_agents "$PLUGIN_DIR" "$backup_root"

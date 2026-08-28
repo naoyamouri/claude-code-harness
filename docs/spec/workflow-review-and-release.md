@@ -116,6 +116,15 @@ separate C-lane marker PR may write `cc:done`. Waiting on CI, preview, access,
 or a human decision is `cc:blocked` with an explicit resume condition, never
 `cc:done` or a success report.
 
+For a Codex-led A-lane run, PR creation and its post-creation formal review
+are one synchronous closeout operation. The closeout command creates the PR,
+resolves the live PR base/head, runs an independent read-only review, writes
+both the human-readable report and `review-result.v1`, then records the
+receipt. A review failure or `REQUEST_CHANGES` leaves no APPROVE receipt and
+returns a non-zero result. Codex lifecycle hooks do not substitute for this
+operation: they do not observe shell-command completion and must not start a
+review from `Stop`.
+
 An agent merge resolves the current PR through `origin`, and must fail closed
 unless the review receipt head equals both local `HEAD` and GitHub's live PR
 head, its recorded `pr_base` equals GitHub's live `baseRefOid`, and its
