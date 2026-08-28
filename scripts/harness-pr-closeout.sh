@@ -9,7 +9,8 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required" >&2
@@ -26,7 +27,7 @@ Usage:
 Notes:
   - build writes pr-payload.json from an evidence pack (no git/gh side effects)
   - dry-run previews payload on stdout (no git/gh side effects)
-  - push calls gh pr create only after confirmation or --yes
+  - push calls gh pr create only after confirmation or --yes, then runs formal review
 USAGE
 }
 
@@ -268,18 +269,6 @@ ensure_attached_head() {
   fi
 }
 
-origin_repo() {
-  local url
-  url="$(git remote get-url origin 2>/dev/null)" || return 1
-  case "$url" in
-    https://github.com/*|http://github.com/*) url="${url#*github.com/}" ;;
-    git@github.com:*) url="${url#git@github.com:}" ;;
-    ssh://git@github.com/*) url="${url#ssh://git@github.com/}" ;;
-    *) return 1 ;;
-  esac
-  printf '%s\n' "${url%.git}"
-}
-
 confirm_push() {
   if [ "${YES:-0}" -eq 1 ]; then
     return 0
@@ -340,8 +329,7 @@ cmd_push() {
     exit 2
   fi
 
-  local title base_ref head_ref body repo
-  local -a repo_args=()
+  local title base_ref head_ref body
   title="$(json_get "$payload_file" '.title')"
   base_ref="$(json_get "$payload_file" '.base_ref')"
   head_ref="$(json_get "$payload_file" '.head_ref')"
@@ -350,13 +338,10 @@ cmd_push() {
     origin/*) base_ref="${base_ref#origin/}" ;;
   esac
 
-  repo="$(origin_repo || true)"
-  if [ -n "$repo" ]; then repo_args=(--repo "$repo"); fi
-  gh pr create "${repo_args[@]}" \
-    --base "$base_ref" \
-    --head "$head_ref" \
-    --title "$title" \
-    --body "$body"
+  local create_and_review="${ROOT_DIR}/scripts/harness-pr-create-and-review.sh"
+  [ -x "$create_and_review" ] || create_and_review="${SCRIPT_DIR}/harness-pr-create-and-review.sh"
+  bash "$create_and_review" \
+    --base "$base_ref" --head "$head_ref" --title "$title" --body "$body"
 }
 
 SUBCOMMAND="${1:-}"

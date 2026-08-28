@@ -192,6 +192,8 @@ if bash scripts/build-host-plugin-dist.sh --host codex --out "${codex_dist_tmp}"
     "scripts/harness-pr-review-gate.sh"
     "scripts/write-review-result.sh"
     "scripts/harness-pr-closeout.sh"
+    "scripts/harness-pr-create-and-review.sh"
+    "scripts/harness-pr-post-create-review.sh"
   )
   for path in "${required_codex_dist_paths[@]}"; do
     if [ ! -e "${codex_dist_tmp}/${path}" ]; then
@@ -275,7 +277,7 @@ if ! HOME="${setup_codex_home}" \
   sed 's/^/    /' /tmp/setup-codex-helpers.$$ | head -80
   setup_codex_ok=false
 fi
-for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh harness-pr-create-and-review.sh harness-pr-post-create-review.sh; do
   installed_helper="${setup_codex_home}/.codex/bin/${helper}"
   if [ ! -x "$installed_helper" ]; then
     echo "  missing executable user helper: $installed_helper"

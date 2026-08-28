@@ -174,6 +174,8 @@ critical_files=(
   "scripts/harness-pr-review-gate.sh"
   "scripts/write-review-result.sh"
   "scripts/harness-pr-closeout.sh"
+  "scripts/harness-pr-create-and-review.sh"
+  "scripts/harness-pr-post-create-review.sh"
   "scripts/model-routing.sh"
   "scripts/resolve-impl-backend.sh"
   "scripts/hook-handlers/memory-bridge.sh"

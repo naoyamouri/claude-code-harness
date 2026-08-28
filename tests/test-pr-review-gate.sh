@@ -141,26 +141,12 @@ for workflow_file in \
 done
 
 for workflow_file in \
-  "$ROOT_DIR/skills/harness-work/references/sprint-contract.md" \
-  "$ROOT_DIR/opencode/skills/harness-work/references/sprint-contract.md" \
   "$ROOT_DIR/skills-codex/harness-work/SKILL.md" \
   "$ROOT_DIR/codex/.codex/skills/harness-work/SKILL.md"; do
-  grep -Fq 'write-review-result.sh' "$workflow_file" \
-    || fail "workflow does not normalize the PR review result: $workflow_file"
-  grep -Fq -- '--base-ref "$BASE_REF"' "$workflow_file" \
-    || fail "workflow does not bind the PR review to its base: $workflow_file"
-  grep -Fq 'PR_CONTEXT=' "$workflow_file" \
-    || fail "workflow does not resolve the live PR base: $workflow_file"
-  grep -Fq 'pr-review-report.md' "$workflow_file" \
-    || fail "workflow does not preserve the human-readable PR review report: $workflow_file"
-  grep -Fq -- '--report .claude/state/pr-review-report.md' "$workflow_file" \
-    || fail "workflow does not direct the reviewer to write the human-readable report: $workflow_file"
-  grep -Fq -- '--review-workflow harness-review --review-mode code' "$workflow_file" \
-    || fail "workflow does not record harness-review provenance: $workflow_file"
-  grep -Fq -- '--review-report .claude/state/pr-review-report.md' "$workflow_file" \
-    || fail "workflow does not bind the receipt to the human-readable report: $workflow_file"
-  grep -Fq -- '--pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF"' "$workflow_file" \
-    || fail "workflow does not record the live PR base in its review artifact: $workflow_file"
+  grep -Fq 'harness-pr-create-and-review.sh' "$workflow_file" \
+    || fail "Codex workflow does not use synchronous PR create-and-review: $workflow_file"
+  grep -Fq 'Stop hook で review を起動してはならない' "$workflow_file" \
+    || fail "Codex workflow does not forbid the Stop-hook review workaround: $workflow_file"
 done
 
 # PRなしではreceiptを発行しない。

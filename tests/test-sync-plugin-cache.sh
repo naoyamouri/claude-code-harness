@@ -108,7 +108,7 @@ for file in "${required_cached_files[@]}"; do
   fi
 done
 
-for rel_path in "scripts/harness-pr-review-gate.sh" "scripts/write-review-result.sh" "scripts/harness-pr-closeout.sh"; do
+for rel_path in "scripts/harness-pr-review-gate.sh" "scripts/write-review-result.sh" "scripts/harness-pr-closeout.sh" "scripts/harness-pr-create-and-review.sh" "scripts/harness-pr-post-create-review.sh"; do
   for target_root in "${CACHE_DIR}" "${MARKETPLACE_DIR}"; do
     target="${target_root}/${rel_path}"
     if [[ ! -x "${target}" ]] || ! cmp -s "${ROOT_DIR}/${rel_path}" "${target}"; then

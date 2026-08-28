@@ -612,6 +612,8 @@ main() {
     install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "write-review-result.sh"
     install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-review-gate.sh"
     install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-closeout.sh"
+    install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-create-and-review.sh"
+    install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "harness-pr-post-create-review.sh"
 
     if [ "$TARGET_MODE" = "project" ]; then
         copy_project_agents "$backup_root"

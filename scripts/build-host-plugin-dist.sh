@@ -86,7 +86,9 @@ copy_runtime_helpers() {
     setup-grok.sh \
     harness-pr-review-gate.sh \
     write-review-result.sh \
-    harness-pr-closeout.sh; do
+    harness-pr-closeout.sh \
+    harness-pr-create-and-review.sh \
+    harness-pr-post-create-review.sh; do
     if [ -f "${ROOT_DIR}/scripts/${script}" ]; then
       cp "${ROOT_DIR}/scripts/${script}" "${dst_root}/scripts/${script}"
       chmod +x "${dst_root}/scripts/${script}" 2>/dev/null || true

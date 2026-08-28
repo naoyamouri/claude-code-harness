@@ -66,10 +66,14 @@ assert_file "$SOURCE_SKILL_FILE"
 assert_file "$CODEX_ONE/bin/harness-pr-review-gate.sh"
 assert_file "$CODEX_ONE/bin/write-review-result.sh"
 assert_file "$CODEX_ONE/bin/harness-pr-closeout.sh"
-if [ ! -x "$CODEX_ONE/bin/harness-pr-review-gate.sh" ]; then
-  echo "expected executable PR review gate" >&2
-  exit 1
-fi
+assert_file "$CODEX_ONE/bin/harness-pr-create-and-review.sh"
+assert_file "$CODEX_ONE/bin/harness-pr-post-create-review.sh"
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh harness-pr-create-and-review.sh harness-pr-post-create-review.sh; do
+  if [ ! -x "$CODEX_ONE/bin/$helper" ]; then
+    echo "expected executable Codex helper: $helper" >&2
+    exit 1
+  fi
+done
 
 # Case 2: the user skill is a symlink to some other local directory.
 # Setup should back up the symlink itself, replace it with a real copied skill

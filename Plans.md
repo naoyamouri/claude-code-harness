@@ -254,3 +254,16 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | 147.1 | `[lane:gate] [tdd:required]` plugin cache sync に Codex 配布ディレクトリを含める。 | RED: stale/absent fixture で cache と marketplace copy の `codex/.codex/skills/harness-work/SKILL.md` が source と一致しない。GREEN: 両コピーが source と byte 一致し、既存 private path 除外・helper closure・plugin validation を維持する。 | 145.1 | cc:done [PR #20 / a7ef34d] |
 
 ---
+
+## Phase 148: Codex PR 後レビューを実行可能な closeout にする (2026-08-28)
+
+**Purpose**: Codex の `harness-work` が PR 作成後レビューを文章だけで指示し、agent がそこで終了できてしまう欠落をなくす。Codex hook に Bash 完了イベントはないため Stop hook は使わず、PR 作成・formal review・receipt 記録を一つの同期 closeout command に集約する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 148.1 | `[lane:gate] [tdd:required]` Codex 用 PR closeout helper を実装する。 | `gh pr create` 成功後に live PR base/head を取得し、独立した read-only Codex review の Markdown report と `review-result.v1` を保存して既存 receipt gate に記録する。review が失敗または `REQUEST_CHANGES` の場合 receipt を残さず非ゼロで終了し、PR作成失敗時は reviewer を起動しない。 | - | cc:done |
+| 148.2 | `[lane:gate] [tdd:required]` Codex の A lane PR 作成経路と配布検証を helper に統一する。 | Codex/workflow mirror が raw `gh pr create` ではなく helper を使い、package/user-install に helper が含まれる。focused fixture と `tests/validate-plugin.sh` が PASS。 | 148.1 | cc:done |
+
+**Non-goals**: SessionStart/Stop hook の timeout・JSON不正は harness-mem の別障害として扱い、この Phase で hook を追加・変更しない。raw GitHub CLI を使う任意の手作業まで強制しない。
+
+---
