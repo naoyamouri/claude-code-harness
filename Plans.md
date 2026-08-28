@@ -244,3 +244,13 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | 146.1 | `[lane:gate] [tdd:required]` private Free merge fallback から owner の承認コメント照会だけを除去する。 | RED: コメントAPIが利用不能でも、current receipt・live base/head・非Draft/CLEAN・全CI SUCCESS のPRは `merge --dry-run` が成功する。GREEN: 上記以外は既存どおり拒否し、focused gate test と plugin validation が通る。 | - | cc:done [4661fb2] |
 
 ---
+
+## Phase 147: Codex 配布キャッシュの freshness (2026-08-28)
+
+**Purpose**: `sync-plugin-cache.sh` が runtime helper と Claude skill だけを同期し、Codex が読む `codex/.codex/skills/` を古いまま残すドリフトを防ぐ。user-level Codex install の自動更新は行わず、既存の明示 setup 経路を維持する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 147.1 | `[lane:gate] [tdd:required]` plugin cache sync に Codex 配布ディレクトリを含める。 | RED: stale/absent fixture で cache と marketplace copy の `codex/.codex/skills/harness-work/SKILL.md` が source と一致しない。GREEN: 両コピーが source と byte 一致し、既存 private path 除外・helper closure・plugin validation を維持する。 | 145.1 | cc:WIP |
+
+---

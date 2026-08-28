@@ -196,6 +196,7 @@ copy_hook_script_closure "hooks/hooks.json"
 critical_dirs=(
   "skills"
   "output-styles"
+  "codex"
 )
 
 for dir in "${critical_dirs[@]}"; do

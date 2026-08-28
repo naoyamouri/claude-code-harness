@@ -78,8 +78,10 @@ required_cached_files=(
 required_cached_dirs=(
   "${CACHE_DIR}/skills"
   "${CACHE_DIR}/output-styles"
+  "${CACHE_DIR}/codex/.codex/skills"
   "${MARKETPLACE_DIR}/skills"
   "${MARKETPLACE_DIR}/output-styles"
+  "${MARKETPLACE_DIR}/codex/.codex/skills"
 )
 
 for file in "${required_cached_files[@]}"; do
@@ -97,6 +99,14 @@ for rel_path in "scripts/harness-pr-review-gate.sh" "scripts/write-review-result
       exit 1
     fi
   done
+done
+
+for target_root in "${CACHE_DIR}" "${MARKETPLACE_DIR}"; do
+  target="${target_root}/codex/.codex/skills/harness-work/SKILL.md"
+  if [[ ! -f "${target}" ]] || ! cmp -s "${ROOT_DIR}/codex/.codex/skills/harness-work/SKILL.md" "${target}"; then
+    echo "sync-plugin-cache did not restore current Codex harness-work skill: ${target}"
+    exit 1
+  fi
 done
 
 for dir in "${required_cached_dirs[@]}"; do
