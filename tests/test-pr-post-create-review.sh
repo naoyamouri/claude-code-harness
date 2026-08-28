@@ -66,7 +66,7 @@ while [ "$#" -gt 0 ]; do
     *) shift ;;
   esac
 done
-printf '{"report_markdown":"# Formal review","review":{"verdict":"%s","critical_issues":[],"major_issues":[]}}\n' "${FAKE_REVIEW_VERDICT:-APPROVE}" >"$out"
+printf '{"report_markdown":"# Formal review","review":{"verdict":"%s"}}\n' "${FAKE_REVIEW_VERDICT:-APPROVE}" >"$out"
 SH
 chmod +x "$BIN/gh" "$BIN/git" "$BIN/codex"
 
