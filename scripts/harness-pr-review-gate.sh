@@ -9,7 +9,7 @@ Usage:
   scripts/harness-pr-review-gate.sh context
   scripts/harness-pr-review-gate.sh record --base REF [--review-result FILE] [--review-report FILE]
   scripts/harness-pr-review-gate.sh verify --base REF
-  scripts/harness-pr-review-gate.sh merge --base REF [--dry-run]
+  scripts/harness-pr-review-gate.sh merge --base REF [--merge-commit] [--dry-run]
 USAGE
 }
 
@@ -28,6 +28,7 @@ BASE_REF=""
 REVIEW_RESULT=".claude/state/review-result.json"
 REVIEW_REPORT=".claude/state/pr-review-report.md"
 DRY_RUN=0
+MERGE_METHOD="squash"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -57,6 +58,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --merge-commit)
+      MERGE_METHOD="merge"
       shift
       ;;
     -h|--help)
@@ -337,9 +342,9 @@ case "$ACTION" in
       require_free_private_merge_conditions
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
-      echo "gh pr merge $PR_NUMBER --repo $PR_REPO --squash --match-head-commit $HEAD_SHA"
+      echo "gh pr merge $PR_NUMBER --repo $PR_REPO --$MERGE_METHOD --match-head-commit $HEAD_SHA"
     else
-      gh pr merge "$PR_NUMBER" --repo "$PR_REPO" --squash --match-head-commit "$HEAD_SHA"
+      gh pr merge "$PR_NUMBER" --repo "$PR_REPO" "--$MERGE_METHOD" --match-head-commit "$HEAD_SHA"
       verify_merge_submission
     fi
     ;;

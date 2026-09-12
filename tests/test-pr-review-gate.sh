@@ -378,6 +378,10 @@ PR_BASE_PROTECTION_STRICT=true
 dry_run="$(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE" --dry-run)"
 expected_merge="gh pr merge 42 --repo test-owner/test-repo --squash --match-head-commit $HEAD_SHA"
 [[ "$dry_run" == *"$expected_merge"* ]] || fail "dry-run must show the guarded merge command"
+merge_commit_dry_run="$(cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE" --merge-commit --dry-run)"
+expected_merge_commit="gh pr merge 42 --repo test-owner/test-repo --merge --match-head-commit $HEAD_SHA"
+[[ "$merge_commit_dry_run" == *"$expected_merge_commit"* ]] \
+  || fail "sync PRs must be able to preserve merge ancestry"
 (cd "$REPO" && REQUIRE_ORIGIN_REPO=1 run_gate merge --base "$BASE")
 grep -Fq -- "--repo test-owner/test-repo" "$MERGE_LOG" || fail "guarded merge must target origin"
 grep -Fq -- "--match-head-commit $HEAD_SHA" "$MERGE_LOG" || fail "guarded merge must pin the approved head"
