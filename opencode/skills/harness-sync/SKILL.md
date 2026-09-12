@@ -80,13 +80,14 @@ PROJECT=$(tail -1 .claude/state/agent-trace.jsonl 2>/dev/null | \
 
 | チェック項目 | 検出方法 |
 |------------|----------|
-| 完了済みなのに `cc:WIP` | コミット履歴 vs マーカー |
+| 完了済みなのに `cc:WIP` | DoD・必須チェック・必要な review の証拠 vs マーカー |
 | 着手済みなのに `cc:TODO` | 変更ファイル vs マーカー |
 | `cc:完了` なのに GitHub merge receipt なし | `gh pr view --json state,mergeCommit` vs マーカー |
 
 ## Step 3: Plans.md 更新提案
 
-差分が検出された場合、提案して実行する:
+状況確認だけの依頼は読み取りと差分報告で完了する。同期更新を明示依頼されている場合は、証拠に一致するマーカー更新を再確認せず実行する。
+対象が曖昧、証拠が不足、または仕様判断が必要な項目だけ提案に残す。コミットや Worker の自己申告だけでは完了にしない。
 
 ```
 Plans.md 更新が必要です
@@ -96,15 +97,13 @@ Plans.md 更新が必要です
 | XX   | cc:WIP | cc:完了 | GitHub merge receipt 確認済み。marker PR を作成 |
 | YY   | cc:WIP | cc:blocked [waiting for CI] | required CI / human decision 待ち |
 | YY   | cc:TODO | cc:WIP | ファイル編集済み |
-
-更新しますか？ (yes / no)
 ```
-
-## Step 4: 進捗サマリー出力
 
 ### PR-first completion rule
 
-`cc:完了` は worker commit や local cherry-pick ではなく **GitHub merge receipt** が確認できた時だけ付ける。実装 PR の merge 後に `harness-sync` を実行し、Plans.md の marker 変更は code PR と分離した **marker PR** として作成する。CI・review・権限・人間判断を待つ間は `cc:blocked [reason]` を維持する。
+`cc:完了` は worker commit や local integration ではなく **GitHub merge receipt** が確認できた時だけ付ける。実装 PR の merge 後に `harness-sync` を実行し、Plans.md の marker 変更は code PR と分離した **marker PR** として作成する。CI・review・権限・人間判断を待つ間は `cc:blocked [reason]` を維持する。
+
+## Step 4: 進捗サマリー出力
 
 ```markdown
 ## 進捗サマリー
@@ -246,8 +245,8 @@ git diff --stat HEAD~10
 
 ### Step R4: harness-mem への記録
 
-振り返り結果を harness-mem に記録し、次回の `create` 時に参照できるようにする。
-記録先: `.claude/agent-memory/` 配下の該当エージェントメモリ。
+振り返りは今回確認した証拠と改善案を報告する。永続記録を明示依頼されている場合だけ、対象の harness-mem または `.claude/agent-memory/` に出典と判断理由を記録する。
+通常の進捗確認や `sync` を永続記録の依頼として扱わない。
 
 ## 関連スキル
 

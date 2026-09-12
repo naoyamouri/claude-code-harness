@@ -20,7 +20,8 @@ user-invocable: true
 
 # Harness Review
 
-Harness の統合レビュースキル。薄い dispatcher として詳細な品質基準は `references/` を読む。
+Harness の統合レビュースキル。
+この `SKILL.md` は薄い dispatcher であり、詳細な品質基準は `references/` を読む。
 
 if $ARGUMENTS == "":
   → 「今までの作業のレビュー」と解釈し、Review target detection を実行する
@@ -31,11 +32,12 @@ if $ARGUMENTS == "":
 
 ### Output Contract (P35: 「止まったように見える」UX 対策)
 
-skill 結論時の output の **最後の 1 行**は必ず次の literal を含める:
+`<local-command-stdout>` で host へ結果を中継する場合だけ、output の **最後の 1 行**に次の literal を含める:
 
 `↑この結果は Claude が要約します。Enter キーで次へ進むか、新規 prompt で別の指示を出してください。`
 
-これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。ただし `code --no-commit --report FILE` では stdout に P35 フッターを付けない。`review-result.v1` のJSONだけをstdoutへ出し、人向けMarkdownは `FILE` に保存する。
+これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。ただし `code --no-commit --report FILE` では stdout に P35 フッターを付けない。`review-result.v1` の JSON だけを stdout へ出し、人向け Markdown は `FILE` に保存する。
+host の最終回答は verdict、判断理由、確認した証拠、未検証点を返す。要約の予告だけで終了しない。
 
 ## Dispatcher Contract
 
@@ -62,7 +64,8 @@ commit / push / release は既定では行わない。
 | `/harness-review --security` | `security` | security 専用 review |
 | `/harness-review plan` | `plan` | `Plans.md` の計画 review |
 | `/harness-review scope` | `scope` | scope creep / 漏れ review |
-`code --base REF --no-commit` は `REF..HEAD` を固定対象とし、stdoutには構造化 `review-result.v1` だけを返す。`--report FILE` がある場合、reviewerは人向けMarkdownをそのファイルに保存する（保存・commit・push・merge は呼出元）。
+
+`code --base REF --no-commit` は `REF..HEAD` を固定対象とし、stdout には構造化 `review-result.v1` だけを返す。`--report FILE` がある場合、reviewer は人向け Markdown をそのファイルに保存する（保存・commit・push・merge は呼出元）。
 ## Mode Decision
 
 引数から実行 mode を決定し、必要な `references/` を選択ロードする。
@@ -165,6 +168,10 @@ REVIEW_AUTOSTART: target={resolved_target}, base_ref={resolved_base_ref}, type={
 5. `APPROVE` / `REQUEST_CHANGES` / `decision_needed` を返す
 6. `REQUEST_CHANGES` の場合は critical / major の修正方針と修正後再レビュー条件を示す
 
+委譲先には原依頼、目的、対象差分、spec / DoD、検証証拠を渡し、結論の理由と参照箇所を求める。内部の思考過程や実装 Worker の会話状態は渡さない。
+各 reviewer の確認範囲を分け、許可された同時実行上限を守る。親は証拠照合と指摘の採否判定を進める。
+必要な review とチェックを終えた後の追加検証は、新しい変更、失敗、未解決の懸念がある場合に限る。
+
 ## Review Governance Contract
 
 詳細は `references/governance.md`。
@@ -205,7 +212,6 @@ Codex 環境で native TeamAgent が使えない場合でも、この gate を�
 
 ## Code Review Summary
 
-詳細は `references/code-review.md`。
 通常 code review は次を見る。
 
 - Security
@@ -227,8 +233,6 @@ finding 段階は網羅優先。minor と判定した指摘も `observations[]` 
 
 ## Quick / Codex Closeout Summary
 
-詳細は `references/codex-closeout.md`。
-
 軽量 path の原則:
 
 - target selection を先に固定する
@@ -247,13 +251,11 @@ bash scripts/harness-review-closeout.sh --commit HEAD
 
 ## Plan Review Summary
 
-詳細は `references/plan-review.md`。
 Plan Review は `Plans.md` の DoD / Depends / Status と実装順序を見る。
 仕様正本が必要なタスクで `spec_path` がない場合は、`decision_needed` として止める。
 
 ## Scope Review Summary
 
-詳細は `references/scope-review.md`。
 Scope Review は、要求・差分・テスト・docs の境界が膨らんでいないかを見る。
 範囲変更が必要なら、推測で進めず `AskUserQuestion` または plan 更新に戻す。
 
@@ -282,56 +284,11 @@ If no language is configured, use English. Use Japanese only when
 instruction requests Japanese output.
 Machine-readable values stay English.
 
-Start the human report with the result summary. For Japanese, start `## 🟢 合格 (APPROVE)` / `## 🔴 修正が必要 (REQUEST_CHANGES)` / `## 🟡 判断が必要` and one sentence. List every critical/major item under `### 必須対応` with `理由:` and `対応:`, non-blocking items under `### 改善提案`, then verification plus embedded JSON under `### 詳細`. Use equivalent headings in other locales. In `code --no-commit --report FILE`, save this complete Markdown to `FILE` and emit only the `review-result.v1` JSON to stdout; do not derive the report from that JSON.
-
-~~~markdown
-## {🟢 合格 (APPROVE) | 🔴 修正が必要 (REQUEST_CHANGES) | 🟡 判断が必要}
-
-{one-line conclusion}
-
-### 必須対応
-- {🔴 | 🟠} `file:line` - {issue}
-  - 理由: {evidence}
-  - 対応: {concrete action}
-
-### 改善提案
-- ...
-
-### 詳細
-
-Target: `{BASE_REF}..HEAD` or `{target}`
-Verification: {commands run}
-```json
-{
-  "schema_version": "review-result.v1",
-  "verdict": "APPROVE | REQUEST_CHANGES",
-  "decision_needed": {
-    "required": false,
-    "ask_tool": "AskUserQuestion"
-  },
-  "accepted_findings": [],
-  "rejected_findings": [],
-  "acceptance_bar": {
-    "critical_major_zero": true,
-    "spec_alignment": "pass | fail | not_applicable",
-    "plans_alignment": "pass | fail | not_applicable",
-    "regression_safety": "pass | fail | not_applicable",
-    "verification_evidence": "pass | fail | not_applicable"
-  },
-  "team_debate": {
-    "required": false,
-    "mode": "native | codex-companion | manual-pass | unavailable",
-    "team_agent_mode": "native | codex-companion | manual-pass | unavailable",
-    "agents": [],
-    "disagreements": []
-  },
-  "critical_issues": [],
-  "major_issues": [],
-  "observations": [],
-  "recommendations": []
-}
-```
-~~~
+Start the human report with the result summary. For Japanese, use `## 🟢 合格 (APPROVE)`,
+`## 🔴 修正が必要 (REQUEST_CHANGES)`, or `## 🟡 判断が必要`; list blocking items under
+`### 必須対応` with `理由:` and `対応:`, non-blocking items under `### 改善提案`, and evidence
+under `### 詳細`. The complete template is in `references/code-review.md#output-contract`.
+In `code --no-commit --report FILE`, save Markdown to `FILE` and emit only the `review-result.v1` JSON to stdout.
 
 ## Codex Environment
 

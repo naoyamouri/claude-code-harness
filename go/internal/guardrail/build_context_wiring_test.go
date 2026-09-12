@@ -146,6 +146,24 @@ var wiringCases = []wiringCase{
 		},
 	},
 	{
+		field: "DestructiveDeletePolicy",
+		prepare: func(t *testing.T, root string) hookproto.HookInput {
+			// live producer: harness.toml [safety.permissions] destructiveDelete.
+			// Uses "ask" (the non-default value since v5.11.0) so the case
+			// proves the file drives the field instead of passing vacuously.
+			if err := os.WriteFile(filepath.Join(root, "harness.toml"),
+				[]byte("[safety.permissions]\ndestructiveDelete = \"ask\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return wiringInput(root)
+		},
+		check: func(t *testing.T, ctx hookproto.RuleContext) {
+			if ctx.DestructiveDeletePolicy != "ask" {
+				t.Fatalf("DestructiveDeletePolicy = %q, want ask (from harness.toml)", ctx.DestructiveDeletePolicy)
+			}
+		},
+	},
+	{
 		field: "ConsumePlanPreapproval",
 		prepare: func(t *testing.T, root string) hookproto.HookInput {
 			// live producer: harness-plan writes .claude/state/plan-preapprovals.json
@@ -154,6 +172,19 @@ var wiringCases = []wiringCase{
 		check: func(t *testing.T, ctx hookproto.RuleContext) {
 			if ctx.ConsumePlanPreapproval == nil {
 				t.Fatalf("ConsumePlanPreapproval consumer not attached")
+			}
+		},
+	},
+	{
+		field: "ConsumeDeferredOp",
+		prepare: func(t *testing.T, root string) hookproto.HookInput {
+			// live producer: recordDeferredOp writes .claude/state/deferred-ops.jsonl
+			// on a defer deny, and `harness deferred approve <id>` flips it (140.2).
+			return wiringInput(root)
+		},
+		check: func(t *testing.T, ctx hookproto.RuleContext) {
+			if ctx.ConsumeDeferredOp == nil {
+				t.Fatalf("ConsumeDeferredOp consumer not attached")
 			}
 		},
 	},

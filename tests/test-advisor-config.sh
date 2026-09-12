@@ -60,8 +60,23 @@ EOF
   assert_eq "3" "$(get_advisor_max_consults_per_task)" "default advisor.max_consults_per_task"
   assert_eq "2" "$(get_advisor_retry_threshold)" "default advisor.retry_threshold"
   assert_eq "true" "$(get_advisor_consult_before_user_escalation)" "default advisor.consult_before_user_escalation"
-  assert_eq "opus" "$(get_advisor_claude_model)" "default advisor.claude_model"
-  assert_eq "gpt-5.4" "$(get_advisor_codex_model)" "default advisor.codex_model"
+  assert_eq "claude-fable-5-1" "$(get_advisor_claude_model)" "default advisor.claude_model"
+  assert_eq "gpt-6-astra" "$(get_advisor_codex_model)" "default advisor.codex_model"
+)
+
+cat > "${TMP_DIR}/project/.claude-code-harness.config.yaml" <<'EOF'
+advisor:
+  codex_model: gpt-5.6-sol
+EOF
+
+(
+  cd "${TMP_DIR}/project"
+  PROJECT_ROOT="${TMP_DIR}/project"
+  CONFIG_FILE="${TMP_DIR}/project/.claude-code-harness.config.yaml"
+  # shellcheck disable=SC1090
+  source "${CONFIG_UTILS}"
+
+  assert_eq "gpt-5.6-sol" "$(get_advisor_codex_model)" "explicit project advisor.codex_model"
 )
 
 cat > "${TMP_DIR}/project/custom.yaml" <<'EOF'
@@ -73,7 +88,7 @@ advisor:
   retry_threshold: 4
   consult_before_user_escalation: false
   claude_model: opus-extended
-  codex_model: gpt-5.5
+  codex_model: gpt-5.6-luna
 EOF
 
 (
@@ -89,7 +104,12 @@ EOF
   assert_eq "4" "$(get_advisor_retry_threshold)" "override advisor.retry_threshold"
   assert_eq "false" "$(get_advisor_consult_before_user_escalation)" "override advisor.consult_before_user_escalation"
   assert_eq "opus-extended" "$(get_advisor_claude_model)" "override advisor.claude_model"
-  assert_eq "gpt-5.5" "$(get_advisor_codex_model)" "override advisor.codex_model"
+  assert_eq "gpt-5.6-luna" "$(get_advisor_codex_model)" "override advisor.codex_model"
+
+  CODEX_ADVISOR_MODEL="gpt-6-astra"
+  assert_eq "gpt-6-astra" "$(get_advisor_codex_model)" "per-run advisor model overrides project model"
+  unset CODEX_ADVISOR_MODEL
+  assert_eq "gpt-5.6-luna" "$(get_advisor_codex_model)" "project model survives per-run override"
 
   ensure_advisor_state_files
 
@@ -101,6 +121,17 @@ EOF
   grep -q '^{}$' "$(get_advisor_last_response_file)" || fail "advisor last-response initialized"
   pass "advisor state files initialized"
 )
+
+for template in \
+  "${PROJECT_ROOT}/templates/.claude-code-harness.config.yaml.template" \
+  "${PROJECT_ROOT}/templates/locales/ja/.claude-code-harness.config.yaml.template"; do
+  (
+    CONFIG_FILE="${template}"
+    source "${CONFIG_UTILS}"
+    assert_eq "claude-fable-5-1" "$(get_advisor_claude_model)" "template advisor.claude_model: ${template}"
+    assert_eq "gpt-6-astra" "$(get_advisor_codex_model)" "template advisor.codex_model: ${template}"
+  )
+done
 
 (
   cd "${TMP_DIR}/project"

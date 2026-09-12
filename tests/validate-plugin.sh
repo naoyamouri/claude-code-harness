@@ -531,12 +531,6 @@ else
     fail_test "Claude Code 2.1.80-2.1.86 の統合ポイントに欠落があります"
 fi
 
-if bash "$PLUGIN_ROOT/tests/test-upstream-sync-workflow.sh" >/dev/null 2>&1; then
-    pass_test "Chachamaru 本家の同期 PR workflow が配線されています"
-else
-    fail_test "Chachamaru 本家の同期 PR workflow に欠落があります"
-fi
-
 if bash "$PLUGIN_ROOT/tests/test-plans-status-markers.sh" >/dev/null 2>&1; then
     pass_test "Plans.md status marker protocol の互換性が保たれています"
 else
@@ -840,6 +834,42 @@ if bash "$PLUGIN_ROOT/tests/test-model-routing.sh" > /dev/null 2>&1; then
     pass_test "Claude/Codex model routing が role tier と Codex reasoning config 変換を満たします (test-model-routing.sh)"
 else
     fail_test "Claude/Codex model routing の契約テストに失敗 — 'bash tests/test-model-routing.sh' で詳細確認"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-frontier-model-catalog.sh" > /dev/null 2>&1; then
+    pass_test "Fable 5.1/Astra routes preserve explicit Opus selection and lightweight workers"
+else
+    fail_test "Frontier model catalog contract failed: bash tests/test-frontier-model-catalog.sh"
+fi
+
+if python3 "$PLUGIN_ROOT/tests/test-codex-companion-frontier.py" > /dev/null 2>&1; then
+    pass_test "Codex companion preserves explicit model/effort and ultra before provider dispatch"
+else
+    fail_test "Codex frontier companion contract failed: python3 tests/test-codex-companion-frontier.py"
+fi
+
+if python3 -B "$PLUGIN_ROOT/tests/test-codex-loop-prompt-delivery.py" > /dev/null 2>&1; then
+    pass_test "Loop workers and advisors retain task context, concrete failures, and prior guidance"
+else
+    fail_test "Loop prompt delivery contract failed: python3 -B tests/test-codex-loop-prompt-delivery.py"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-breezing-codex-worker-route.sh" > /dev/null 2>&1; then
+    pass_test "D70: Codex Breezing managed worker profile・spawn shape・worker-tier pin が維持されています (test-breezing-codex-worker-route.sh)"
+else
+    fail_test "D70: Codex Breezing worker route の契約テストに失敗 — 'bash tests/test-breezing-codex-worker-route.sh' で詳細確認"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-codex-reviewer-route.sh" > /dev/null 2>&1; then
+    pass_test "Codex reviewer は Astra/xhigh を per-run app-server config 経由で official envelope に適用します (test-codex-reviewer-route.sh)"
+else
+    fail_test "Codex reviewer の実効 model/effort 配線テストに失敗 — 'bash tests/test-codex-reviewer-route.sh' で詳細確認"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-codex-reviewer-loader.sh" > /dev/null 2>&1; then
+    pass_test "Codex setup binds the managed reviewer and preserves custom role settings (test-codex-reviewer-loader.sh)"
+else
+    fail_test "Codex reviewer loader setup regression failed; run bash tests/test-codex-reviewer-loader.sh"
 fi
 
 if bash "$PLUGIN_ROOT/tests/test-impl-backend.sh" > /dev/null 2>&1; then
@@ -1272,12 +1302,6 @@ else
     fail_test "harness-review governance contract failed — 'bash tests/test-harness-review-governance.sh' で詳細確認"
 fi
 
-if bash "$PLUGIN_ROOT/tests/test-pr-review-gate.sh" > /dev/null 2>&1; then
-    pass_test "PR review receipt は APPROVE / base / HEAD を照合して agent merge を fail closed にします"
-else
-    fail_test "PR review gate contract failed — 'bash tests/test-pr-review-gate.sh' で詳細確認"
-fi
-
 if bash "$PLUGIN_ROOT/tests/test-harness-release-governance.sh" > /dev/null 2>&1; then
     pass_test "harness-release は bare invocation / 未レビュー AskUserQuestion / review→commit→release gate / mirror sync を満たします"
 else
@@ -1418,6 +1442,12 @@ else
     fail_test "scope leash 実効性契約テスト失敗 — 'bash tests/test-scope-leash-fires-on-security-diff.sh' で詳細確認"
 fi
 
+if bash "$PLUGIN_ROOT/tests/test-r05-destructive-delete-policy.sh" > /dev/null 2>&1; then
+    pass_test "R05 destructive_delete=warn が実バイナリ経由で allow + 記録し、既定 ask と root 外 backstop を保つ契約テストが通ります (test-r05-destructive-delete-policy.sh)"
+else
+    fail_test "R05 destructive_delete policy 契約テスト失敗 — 'bash tests/test-r05-destructive-delete-policy.sh' で詳細確認"
+fi
+
 echo ""
 echo "23. Config schema (Phase 135.5)"
 echo "----------------------------------------"
@@ -1429,10 +1459,36 @@ else
 fi
 
 echo ""
-echo "24. PR-first workflow contract (Phase 144)"
+echo "24. Session pipeline wiring (Phase 141.10)"
 echo "----------------------------------------"
 
-if bash "$PLUGIN_ROOT/tests/test-pr-first-core-skill-contract.sh" > /dev/null 2>&1; then
+SESSION_WIRING_OUT="$(bash "$PLUGIN_ROOT/scripts/ci/check-session-pipeline-wiring.sh" 2>&1)" && SESSION_WIRING_RC=0 || SESSION_WIRING_RC=$?
+if [ "$SESSION_WIRING_RC" -eq 0 ]; then
+    pass_test "セッション協調パイプライン (名簿 / 身分証 / 送る口 / broadcast scope / mem 同居 / 検証 knob / hermes) の 7 点が配線されています"
+else
+    # Print which of the 7 seams failed. A gate that only says "failed" costs a
+    # full CI round trip to diagnose.
+    echo "$SESSION_WIRING_OUT" | grep -E 'NG:|SKIP' || true
+    fail_test "session pipeline wiring contract failed — 'bash scripts/ci/check-session-pipeline-wiring.sh' で詳細確認"
+fi
+
+echo ""
+echo "Fork workflow contracts"
+echo "-----------------------"
+
+if bash "$PLUGIN_ROOT/tests/test-upstream-sync-workflow.sh" >/dev/null 2>&1; then
+    pass_test "Chachamaru 本家の同期 PR workflow が配線されています"
+else
+    fail_test "Chachamaru 本家の同期 PR workflow に欠落があります"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-pr-review-gate.sh" >/dev/null 2>&1; then
+    pass_test "PR review receipt は APPROVE / base / HEAD を照合して agent merge を fail closed にします"
+else
+    fail_test "PR review gate contract failed — 'bash tests/test-pr-review-gate.sh' で詳細確認"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-pr-first-core-skill-contract.sh" >/dev/null 2>&1; then
     pass_test "core skills and canonical references keep default-branch writes behind PR merge"
 else
     fail_test "PR-first workflow contract failed — 'bash tests/test-pr-first-core-skill-contract.sh' で詳細確認"

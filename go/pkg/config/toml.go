@@ -32,6 +32,7 @@ type Config struct {
 	Env        map[string]string `toml:"env"`
 	Safety     SafetyConfig      `toml:"safety"`
 	TDD        TDDConfig         `toml:"tdd"`
+	Livemsg    LivemsgConfig     `toml:"livemsg"`
 	ScopeLeash ScopeLeashConfig  `toml:"scope_leash"`
 }
 
@@ -93,6 +94,7 @@ type PermissionsConfig struct {
 	Deny                []string `toml:"deny"`
 	Ask                 []string `toml:"ask"`
 	ProtectedBranchPush string   `toml:"protectedBranchPush"`
+	DestructiveDelete   string   `toml:"destructiveDelete"`
 }
 
 // GuardrailConfig maps to [safety.guardrail].
@@ -142,6 +144,16 @@ type TDDEnforceConfig struct {
 	DefaultMaxRedLogAgeMinutes int    `toml:"default_max_red_log_age_minutes"`
 	BypassAuditRequired        bool   `toml:"bypass_audit_required"`
 }
+
+// LivemsgConfig maps to [livemsg] in harness.toml.
+type LivemsgConfig struct {
+	Verification string `toml:"verification"`
+}
+
+const (
+	LivemsgVerificationOff = "off"
+	LivemsgVerificationOn  = "on"
+)
 
 const (
 	TDDEnforceLevelOff     = "off"
@@ -232,6 +244,9 @@ func applyDefaults(cfg *Config, meta toml.MetaData) {
 	if !meta.IsDefined("scope_leash", "enforce_level") {
 		cfg.ScopeLeash.EnforceLevel = ScopeLeashLevelWarn
 	}
+	if !meta.IsDefined("livemsg", "verification") {
+		cfg.Livemsg.Verification = LivemsgVerificationOff
+	}
 }
 
 func validateConfig(cfg *Config) error {
@@ -249,6 +264,14 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf(
 			"harness.toml: unsupported scope_leash.enforce_level %q (allowed: off, warn, enforce)",
 			cfg.ScopeLeash.EnforceLevel,
+		)
+	}
+	switch cfg.Livemsg.Verification {
+	case LivemsgVerificationOff, LivemsgVerificationOn:
+	default:
+		return fmt.Errorf(
+			"harness.toml: unsupported livemsg.verification %q (allowed: off, on)",
+			cfg.Livemsg.Verification,
 		)
 	}
 	return nil

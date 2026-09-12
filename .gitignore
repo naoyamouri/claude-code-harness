@@ -66,6 +66,9 @@ harness-ui/CLAUDE.md
 
 # Generated host-hook artifact (harness gen, Phase 91.3); converges on bin/harness hook pre-tool.
 /.codex/hooks.json
+
+# .hermes/hooks.json is a generated host-hook artifact (harness gen); keep it ignored.
+/.hermes/hooks.json
 # Same for grok (Phase 133.8): hook_generation writes here once it is no longer deferred.
 /.grok/hooks/
 /.cursor/commands/
@@ -204,6 +207,9 @@ docs/presentation/11.png
 
 # Harness-mem 一時データ（ローカルのみ）
 /.harness-mem/
+
+# Local work-mode state (state.db); never commit
+/.harness/
 
 # 診断出力（一時ファイル）
 /output/
