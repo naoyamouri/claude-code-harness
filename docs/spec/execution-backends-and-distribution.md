@@ -96,13 +96,61 @@ namespace as the user-facing mental model.
 The concrete model for any host+role is resolved by
 `scripts/model-routing.sh --host <backend> --role <role>`. This contract does
 not reimplement model selection. The claude-host brain tiers (`deep`,
-`advisor`) default to `claude-opus-5` (Opus 4.8 was retired from the catalog
-on 2026-07-25; the claude lineup is brain = Opus 5, review = Fable 5,
-worker = Sonnet 5). Unset, empty, `opus`, or `opus5` keeps the default;
-setting `HARNESS_BRAIN_MODEL=fable` opts those two tiers into
-`claude-fable-5`; any other value fails with exit 2 instead of falling back
-silently. The opt-in never changes the worker or review tiers and never
-touches the codex/cursor catalogs.
+`advisor`) default to `claude-fable-5-1` at `high`. Unset, empty, or `fable`
+selects that route; explicit `HARNESS_BRAIN_MODEL=opus` or `opus5` selects
+`claude-opus-5` at `xhigh`. Unknown values fail with exit 2. This choice never
+changes worker or review tiers and never touches the Codex/Cursor catalogs.
+The Claude router review tier uses Fable 5.1/high; the isolated native
+`agents/reviewer.md` keeps its Sonnet 5 security-review contract. Native
+`agents/advisor.md` uses Fable 5.1/high. These are separate execution surfaces.
+
+### D70 Codex role and review contract
+
+Codex role routing is explicit and intentionally separates implementation from
+review:
+
+| Harness role | Effective Codex route | Reasoning | Boundary |
+|---|---|---|---|
+| `worker` | `gpt-5.6-luna` | `max` | Breezing implementation and retries; native Codex uses managed `worker.toml` |
+| `standard` (generic) | `gpt-6-astra` | `xhigh` | General implementation/setup route; it does not inherit the worker tier |
+| `review` / `reviewer` | `gpt-6-astra` (`review_model` included) | `xhigh` | Independent review and adversarial checks |
+| `lite` | `gpt-5.6-luna` | `low` | Cheap read-heavy exploration; not a replacement for the worker tier |
+
+Native Codex Breezing selects `agent_type: worker`; the managed custom-agent
+profile owns the native worker model and effort. The `breezing --codex`
+companion call sites pin `CODEX_MODEL_TIER=worker`, so they cannot silently
+inherit a generic session route. Reviewer, advisor, and deep routes remain
+separate from worker routing.
+
+The September 2026 refresh changes frontier model IDs while retaining D70's
+role separation and existing Codex role effort. Explicit model and effort
+arguments, including supported `-c model=...` and
+`-c model_reasoning_effort=...` forms, take precedence over routed defaults.
+An explicit task `CODEX_EFFORT` also overrides the role default. Free-text
+complexity calculation must not overwrite a resolved role effort.
+Codex `ultra` is passed through the Codex runtime, not the public model API.
+An unsupported transport or stateful combination fails before dispatch.
+The local codex-loop driver continues to inherit the caller's Codex settings;
+the companion driver uses its explicit role route. Existing project advisor
+model choices remain explicit overrides; refreshing the catalog does not
+rewrite protected project configuration.
+
+Routed Codex review is a per-run local transport. The wrapper starts
+`scripts/codex-review-app-server-proxy.mjs`, which launches `codex app-server
+--stdio` with the effective `model`, `review_model`, and
+`model_reasoning_effort` injected as config. The official Codex companion
+connects through `CODEX_COMPANION_APP_SERVER_ENDPOINT`; its official
+request/result envelope remains authoritative. `review --commit` fails closed
+before provider dispatch. Only a companion-plus-proxy success emits a
+successful delegation ledger entry. Rejected requests and failed transports do
+not count.
+
+For `TERM` or `INT`, the wrapper forwards the signal to the companion and
+proxy at the same time, waits at most one second, then sends `KILL` and reaps
+any remaining child. The proxy applies the same terminate → bounded wait →
+force-kill → reap rule to its app-server child. POSIX uses a Unix socket;
+Windows named-pipe coverage is fixture/static only here, and live Windows
+provider/app-server behavior is not observed.
 
 Cursor remains `internal-compatible`, not a public `supported` claim. The
 shipped `harness` CLI keeps Cursor opt-in by default; individual
@@ -206,6 +254,15 @@ tier evidence.
 
 ## Host Distribution Contract
 
+Prompt delivery follows [the root Prompt Delivery Contract](../../spec.md#prompt-delivery-contract).
+Audit both reusable instructions and the runtime payload. Task descriptions,
+completion criteria, refinement findings, selected plan paths, and available
+resume evidence must reach their intended role without inventing authorization.
+See [prompt-calibration.md](../prompt-calibration.md) for the source and delivery
+map. Standalone native profiles must be self-contained; embedded verb prompts
+require a binary rebuild. Updating a plugin package alone does not update a
+previously copied user agent profile or an already running conversation.
+
 Distribution is a single `harness` CLI binary plus the manifests and mirrors that
 hosts read directly. Per-host shims — the hooks.json configs, the skill/agent
 mirrors, the manifest, and the catalog docs — are generated from one source
@@ -241,6 +298,27 @@ Rules:
   set and is not overwritten, but `harness gen --check` verifies its PreToolUse
   guardrail group still matches `hosts.toml`, so the pre-action route shared by
   all three hosts cannot drift even though the rest of that file is not generated.
+- Codex managed custom-agent profiles use the same source boundary: a
+  `[codex.agent_profiles.<role>]` declaration in `hosts.toml` supplies the
+  profile metadata and in-package `output_path`. `harness gen` writes the
+  Codex profiles (currently `codex/.codex/agents/worker.toml` and
+  `codex/.codex/agents/reviewer.toml`) and `harness gen --check`
+  byte-compares them with the committed artifacts. The Codex distribution
+  requires those generated profiles; setup activation is unchanged and still
+  copies them into the user's or project's `.codex/agents/` directory.
+- Both Claude and Codex distributions must carry the complete runtime-helper
+  closure needed by their Breezing/review paths. In particular, a package that
+  contains `codex-review-app-server-proxy.mjs` must also contain its companion,
+  router, ledger, and related helper callers; `scripts/build-host-plugin-dist.sh`
+  copies that closure for both host packages. The Codex task path also requires
+  the `bin/harness` launcher, supported platform binaries, and `VERSION` because
+  the companion performs worktree fingerprint capture before and after a task.
+  Runtime bundle discovery is separate from the target execution root: the
+  companion resolves `HARNESS_BIN` from an explicit override, the active plugin
+  root, or its adjacent package before using a source-checkout fallback. The
+  execution root remains the worktree being guarded.
+  A generated profile, proxy, or helper present only in the source tree is not
+  an activation or distribution claim.
 - A host's generated shim must not cross-contaminate another host: the Codex
   artifact contains only Codex hook config and the Codex skill/agent mirror, the
   Cursor artifact only Cursor's, and so on. Cross-host manifests never appear in
@@ -295,6 +373,38 @@ artifacts stay committed so distribution keeps working, and the gates make them 
 drift-proof as gitignored build output would be. A future pure-CLI install that
 regenerates on the target could revisit untracking; it is out of scope while
 marketplace and setup-copy distribution is the supported path.
+
+### Codex setup preflight and migration contract (D70)
+
+Both local and remote Codex setup run configuration preflight before changing
+skills, rules, managed agents, or project `AGENTS.md`. The migration recognizes
+only the two Harness-owned legacy root `[notify]` forms below:
+
+```toml
+# setup form
+[notify]
+after_agent = "echo '[HARNESS-LEARNING] Session completed' >> .claude/state/session-log.txt"
+```
+
+```toml
+# distributed-template form
+[notify]
+after_agent = "mkdir -p .claude/state && echo \"[HARNESS-LEARNING] $(date -u +%Y-%m-%dT%H:%M:%SZ) Session completed\" >> .claude/state/session-log.txt"
+```
+
+For either exact owned form, setup backs up the original config outside the
+skill scan path and replaces the migrated file atomically. Custom, duplicate,
+dotted, descendant, or otherwise ambiguous `notify` shapes fail closed before
+creating a backup or mutating the config, managed targets, or project files.
+The same preflight rule applies when a config is reached through a symlink.
+
+Fresh and existing configurations receive `[features] multi_agent = true` and
+`default_mode_request_user_input = true` when those keys are absent. Explicit
+canonical boolean values and unrelated tables remain unchanged. Setup also
+activates the generated `worker.toml` and `reviewer.toml` profiles. The D70
+implementation and its fixture checks do not perform provider/API calls or
+live HOME/install operations; a real setup invocation still has the documented
+user/project file scope.
 
 ## Clean Mode And Compatibility Mode
 

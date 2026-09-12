@@ -5,10 +5,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WRAPPER="${PROJECT_ROOT}/scripts/run-advisor-consultation.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WRAPPER="${REPO_ROOT}/scripts/run-advisor-consultation.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
+export PROJECT_ROOT="${TMP_DIR}/project"
+mkdir -p "${PROJECT_ROOT}"
 
 pass() {
   echo "[PASS] $1"
@@ -17,6 +19,17 @@ pass() {
 fail() {
   echo "[FAIL] $1" >&2
   exit 1
+}
+
+assert_eq() {
+  local expected="$1"
+  local actual="$2"
+  local label="$3"
+  if [ "${expected}" = "${actual}" ]; then
+    pass "${label}"
+  else
+    fail "${label}: expected='${expected}' actual='${actual}'"
+  fi
 }
 
 cat > "${TMP_DIR}/request.json" <<'EOF'
@@ -44,6 +57,15 @@ if [ -n "${FAKE_ADVISOR_CAPTURE_PROMPT:-}" ]; then
   cat > "${FAKE_ADVISOR_CAPTURE_PROMPT}"
 else
   cat >/dev/null
+fi
+if [ -n "${FAKE_ADVISOR_CAPTURE_CALL:-}" ]; then
+  {
+    printf 'CODEX_MODEL_TIER=%s\n' "${CODEX_MODEL_TIER:-}"
+    printf 'CWD=%s\n' "$(pwd -P)"
+    printf 'ARGS_BEGIN\n'
+    printf '<%s>\n' "$@"
+    printf 'ARGS_END\n'
+  } > "${FAKE_ADVISOR_CAPTURE_CALL}"
 fi
 case "${MODE}" in
   PLAN)
@@ -101,6 +123,66 @@ run_case() {
 run_case PLAN PLAN
 run_case CORRECTION CORRECTION
 run_case STOP STOP
+
+[ -f "${PROJECT_ROOT}/.claude/state/advisor/history.jsonl" ] \
+  || fail "advisor state belongs to the target project"
+assert_eq "43.2.2" "$(jq -r .task_id "${PROJECT_ROOT}/.claude/state/advisor/last-request.json")" "target project receives last request"
+
+run_model_case() {
+  local label="$1"
+  local expected_model="$2"
+  shift 2
+  CODEX_ADVISOR_COMPANION="${TMP_DIR}/fake-companion.sh" \
+    FAKE_ADVISOR_MODE=PLAN \
+    FAKE_ADVISOR_CAPTURE_CALL="${TMP_DIR}/${label}.call" \
+    bash "${WRAPPER}" --request-file "${TMP_DIR}/request.json" \
+      --response-file "${TMP_DIR}/${label}.response.json" "$@" >"${TMP_DIR}/${label}.stdout"
+  local actual_model
+  actual_model="$(awk '/^<--model>$/{getline; gsub(/^<|>$/, ""); print; exit}' "${TMP_DIR}/${label}.call")"
+  assert_eq "${expected_model}" "${actual_model}" "${label}: resolved advisor model"
+  assert_eq "$(cd "${PROJECT_ROOT}" && pwd -P)" "$(sed -n 's/^CWD=//p' "${TMP_DIR}/${label}.call")" "${label}: companion runs in target project"
+}
+
+run_model_case missing-config gpt-6-astra
+
+# An existing project selection remains authoritative over new catalog defaults.
+cat > "${PROJECT_ROOT}/.claude-code-harness.config.yaml" <<'YAML'
+advisor:
+  codex_model: gpt-5.6-sol
+YAML
+run_model_case project-config gpt-5.6-sol
+CODEX_ADVISOR_MODEL=gpt-6-astra run_model_case per-run-env gpt-6-astra
+CODEX_ADVISOR_MODEL=gpt-6-astra run_model_case explicit-argument gpt-5.6-luna --model gpt-5.6-luna
+run_model_case project-config-preserved gpt-5.6-sol
+
+# Without PROJECT_ROOT, a standalone invocation uses its caller's directory.
+(
+  cd "${PROJECT_ROOT}"
+  unset PROJECT_ROOT
+  CODEX_ADVISOR_COMPANION="${TMP_DIR}/fake-companion.sh" \
+    FAKE_ADVISOR_CAPTURE_CALL="${TMP_DIR}/caller-project.call" \
+    bash "${WRAPPER}" --request-file "${TMP_DIR}/request.json" >"${TMP_DIR}/caller-project.stdout"
+)
+assert_eq "gpt-5.6-sol" "$(awk '/^<--model>$/{getline; gsub(/^<|>$/, ""); print; exit}' "${TMP_DIR}/caller-project.call")" "standalone invocation uses caller project model"
+[ -f "${PROJECT_ROOT}/.claude/state/advisor/last-response.json" ] || fail "default response belongs to caller project"
+
+# The dedicated advisor tier keeps its xhigh effort contract.
+CODEX_ADVISOR_COMPANION="${TMP_DIR}/fake-companion.sh" \
+  FAKE_ADVISOR_MODE="PLAN" \
+  FAKE_ADVISOR_CAPTURE_CALL="${TMP_DIR}/advisor-route.call" \
+  bash "${WRAPPER}" \
+    --request-file "${TMP_DIR}/request.json" \
+    --response-file "${TMP_DIR}/advisor-route.response.json" > "${TMP_DIR}/advisor-route.stdout"
+
+captured_model="$(awk '/^<--model>$/{getline; gsub(/^<|>$/, ""); print; exit}' "${TMP_DIR}/advisor-route.call")"
+captured_tier="$(sed -n 's/^CODEX_MODEL_TIER=//p' "${TMP_DIR}/advisor-route.call")"
+captured_effort_arg="$(awk '/^<--effort>$/{getline; gsub(/^<|>$/, ""); print; exit}' "${TMP_DIR}/advisor-route.call")"
+assert_eq "gpt-5.6-sol" "${captured_model}" "configured advisor call preserves Sol model"
+assert_eq "advisor" "${captured_tier}" "configured advisor call pins advisor tier"
+assert_eq "xhigh" "${captured_effort_arg}" "configured advisor call pins xhigh effort"
+captured_effort="$(bash "${REPO_ROOT}/scripts/model-routing.sh" --host codex --tier "${captured_tier}" --field effort)"
+assert_eq "xhigh" "${captured_effort}" "advisor tier routes xhigh effort"
+pass "configured advisor call uses Sol/xhigh route"
 
 set +e
 CODEX_ADVISOR_COMPANION="${TMP_DIR}/fake-companion.sh" \

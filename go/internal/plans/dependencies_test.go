@@ -37,3 +37,16 @@ func TestCheckDoneDependencies_Violation(t *testing.T) {
 		t.Fatalf("formatted violation missing task/dependency: %q", FormatDependencyViolations(violations))
 	}
 }
+
+func TestCheckDoneDependencies_PrefixedTaskIDs(t *testing.T) {
+	content := "" +
+		"| Task | 内容 | DoD | Depends | Status |\n" +
+		"|---|---|---|---|---|\n" +
+		"| F142.1 | Base | done | - | cc:done |\n" +
+		"| F142.2 | Final | done | F142.1 | cc:done |\n"
+
+	violations := CheckDoneDependencies(ParseMarkdown(content))
+	if len(violations) != 0 {
+		t.Fatalf("expected prefixed dependency to resolve, got %+v", violations)
+	}
+}

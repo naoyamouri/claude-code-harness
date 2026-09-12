@@ -105,6 +105,14 @@ backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せ�
 
 ## Progressive Disclosure
 
+実行依頼は、目的と理由、担当範囲、検証可能な DoD、選択した plan / spec、観測済み証拠、原依頼と適用される承認の参照を渡す。
+以降の `{task prompt}` と companion のタスク本文にはこれらを含める。再試行でも元の範囲と条件を残し、追加の finding や advisor response だけで置き換えない。
+方法は担当が選ぶ。承認済みの可逆作業を再確認で止めず、不足情報は契約と読み取り調査で回収する。軽微な仮定は明示し、重大な仕様判断や不足する権限に依存する操作だけ止める。
+評価・相談だけの依頼から実装を開始しない。推定した変更範囲は保護操作の承認ではない。
+独立して検証できる作業を、担当ファイルと同時実行上限を明記して委譲する。他担当の編集を戻さず、関連する follow-up は同じ担当へ返す。Lead も仕様調査や証拠照合を進める。
+必須チェックと既定レビューを完了した後は、新しい変更、失敗、未解決の懸念がない限り追加テストや機能を増やさない。
+完了報告は実際の差分と検証結果で支え、自己申告だけで完了を判定しない。理由と参照可能な証拠を返し、内部の思考過程は求めない。
+
 まずこの本文で入口、自動選択、停止条件だけを確認する。詳細は必要になった時だけ読む。
 
 | 詳細 | 参照 |
@@ -128,6 +136,14 @@ backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せ�
 - helper script は host project の `scripts/` ではなく `${HARNESS_PLUGIN_ROOT}/scripts/` から呼ぶ。
 - 複数 Plans.md がある場合は、1 run の中で plan を切り替えない。必要なら `--plan NAME` を明示して新しい run を開始する。
 
+### 自主停止の禁止 (140.3、2026-08-22 の release run で 2 回発生した停止パターンの再発防止)
+
+以下は禁止行動。literal に列挙する (AUTOSTART pattern と同じ方式):
+
+- background 待ちで turn を終えて停止しない (turn を終えると background 子プロセスは残らない)
+- 「検証を待ちます」「確認します」「完了を待機します」で turn を終えない
+- 待つなら同期実行 (foreground / Monitor) で待ち切る。待てないものは保留として報告し、次のタスクへ進む
+
 > **Token Optimization (v2.1.69+)**: git 操作を伴わない軽量タスクでは
 > plugin settings の `includeGitInstructions: false` を有効にしてプロンプトトークンを削減できる。
 
@@ -135,6 +151,8 @@ backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せ�
 > `ENABLE_PROMPT_CACHING_1H=1` を優先する。
 
 ## スコープダイアログ（引数なし時）
+
+直前の明示依頼や選択済み plan で対象が確定していれば、その範囲を使う。以下の確認は対象範囲が未決の場合だけ行う。
 
 ```
 /harness-work
@@ -148,13 +166,15 @@ backend が `codex` / `cursor` の場合、Lead は Worker agent を spawn せ�
 - `/harness-work all` → 全タスク、自動モード選択
 - `/harness-work 3-6` → 4件なので Breezing 自動選択
 
-## Effort レベル制御（Opus 4.8 / v2.1.111+）
+## モデルごとの推論量
 
-effort はモデルの推論強度を選ぶ正式なノブ。`low(○)/medium(◐)/high(●)/xhigh` の 4 段階で、
-`/effort auto` でデフォルトにリセットできる。複雑度スコア（ファイル数・対象ディレクトリ・キーワード・失敗履歴・明示指定を合算）から
-tier を決め、free-text marker（旧 `ultrathink`）を spawn prompt に注入する方式は使わない。
+effort は推論に使う量の指定。利用者の明示設定を優先し、未指定の担当は `scripts/model-routing.sh` の役割別設定を使う。
+CCH のモデルと effort は未指定時の既定値であり、利用者の明示指定と手動変更を尊重する。AI が文言から再調整したり、親の変更を全 Worker へ配ったりしない。担当別 profile と独立 Reviewer の隔離契約は維持する。
+Fable 5.1 の計画と相談は `high`。実装 worker と独立 reviewer は、それぞれの設定を使う。
+複雑度スコアは見直しの判断材料であり、明示した推論量を自動変更する許可ではない。
+free-text marker（旧 `ultrathink`）を spawn prompt に注入しない。
 
-| スコア | code-risk（core/guardrails/security/architecture/migration を含む） | effort tier |
+| スコア | code-risk（core/guardrails/security/architecture/migration を含む） | 見直し候補 |
 |--------|-----------------------------------|-------------|
 | 0-2 | 不問 | `medium`（Worker frontmatter 既定のまま） |
 | ≥ 3 | なし | `high` |
@@ -208,7 +228,7 @@ if topology in ["solo", "parallel"] and backend in ["cursor", "codex"]:
         companion_output = bash("bash \"${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh\" task --write --workspace {worktree_path} \"{companion_prompt}\"")
     else:
         companion_state_file = "{worktree_path}/.claude/state/codex-primary-environment.json"
-        companion_output = bash("HARNESS_CODEX_PRIMARY_ENV_STATE_FILE={companion_state_file} bash \"${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh\" task --write -C {worktree_path} \"{companion_prompt}\"")
+        companion_output = bash("CODEX_MODEL_TIER=worker HARNESS_CODEX_PRIMARY_ENV_STATE_FILE={companion_state_file} bash \"${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh\" task --write -C {worktree_path} \"{companion_prompt}\"")
     latest_commit = git("-C", worktree_path, "rev-parse", "HEAD")
     if backend == "cursor" and git("-C", worktree_path, "status", "--porcelain") != "":
         git("-C", worktree_path, "add", "-A")
@@ -232,10 +252,10 @@ def enter_non_claude_companion_review_loop(worker_result):
     while verdict == "REQUEST_CHANGES" and review_count < MAX_REVIEWS:
         previous_commit = latest_commit
         if backend == "cursor":
-            companion_output = bash("bash \"${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh\" task --write --workspace {worker_result.worktreePath} \"Review findings:\n{issues}\n\nFix the findings and commit the result.\"")
+            companion_output = bash("bash \"${HARNESS_PLUGIN_ROOT}/scripts/cursor-companion.sh\" task --write --workspace {worker_result.worktreePath} \"{task prompt}\n\nReview findings:\n{issues}\n\nPreserve the original DoD, owned scope and authorization references. Fix the findings and commit the result.\"")
         else:
             companion_state_file = "{worker_result.worktreePath}/.claude/state/codex-primary-environment.json"
-            companion_output = bash("HARNESS_CODEX_PRIMARY_ENV_STATE_FILE={companion_state_file} bash \"${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh\" task --write -C {worker_result.worktreePath} \"Review findings:\n{issues}\n\nFix the findings and commit the result.\"")
+            companion_output = bash("CODEX_MODEL_TIER=worker HARNESS_CODEX_PRIMARY_ENV_STATE_FILE={companion_state_file} bash \"${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh\" task --write -C {worker_result.worktreePath} \"{task prompt}\n\nReview findings:\n{issues}\n\nPreserve the original DoD, owned scope and authorization references. Fix the findings and commit the result.\"")
         latest_commit = git("-C", worker_result.worktreePath, "rev-parse", "HEAD")
         if backend == "cursor" and git("-C", worker_result.worktreePath, "status", "--porcelain") != "":
             git("-C", worker_result.worktreePath, "add", "-A")
@@ -289,14 +309,14 @@ BASE_REF="$(git rev-parse HEAD)"
 WT_ID="codex-$(date +%Y%m%d-%H%M%S)-$$"
 WORKTREE_PATH=".claude/worktrees/${WT_ID}"
 git worktree add -b "codex-work/${WT_ID}" "$WORKTREE_PATH" "$BASE_REF"
-HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
+CODEX_MODEL_TIER=worker HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH" \
   "タスク内容。完了前にこの worktree で exactly one git commit を作成してください。"
 
 # stdin 経由（大きなプロンプト向け）
 CODEX_PROMPT=$(mktemp /tmp/codex-prompt-XXXXXX.md)
 # タスク内容を書き出し
-cat "$CODEX_PROMPT" | HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
+cat "$CODEX_PROMPT" | CODEX_MODEL_TIER=worker HARNESS_CODEX_PRIMARY_ENV_STATE_FILE="$WORKTREE_PATH/.claude/state/codex-primary-environment.json" \
   bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" task --write -C "$WORKTREE_PATH"
 rm -f "$CODEX_PROMPT"
 

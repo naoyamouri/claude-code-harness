@@ -77,6 +77,7 @@ copy_runtime_helpers() {
     build-host-plugin-dist.sh \
     calculate-effort.sh \
     codex-companion.sh \
+    codex-review-app-server-proxy.mjs \
     codex-primary-environment-guard.sh \
     cursor-companion.sh \
     model-routing.sh \
@@ -95,9 +96,55 @@ copy_runtime_helpers() {
   if [ -f "${ROOT_DIR}/scripts/lib/host-registry.sh" ]; then
     cp "${ROOT_DIR}/scripts/lib/host-registry.sh" "${dst_root}/scripts/lib/host-registry.sh"
   fi
+  if [ -f "${ROOT_DIR}/scripts/lib/orchestration-ledger.sh" ]; then
+    cp "${ROOT_DIR}/scripts/lib/orchestration-ledger.sh" "${dst_root}/scripts/lib/orchestration-ledger.sh"
+  fi
   if [ -f "${ROOT_DIR}/hosts/registry.json" ]; then
     cp "${ROOT_DIR}/hosts/registry.json" "${dst_root}/hosts/registry.json"
   fi
+}
+
+copy_workflow_runtime_sources() {
+  local dst_root="$1"
+  # Work, loop, and advisor helpers load each other dynamically. Package their
+  # source tree and reusable templates instead of a shallow entrypoint list.
+  # Runtime state, reports, test fixtures, dependencies, and symlinks are not
+  # distribution inputs. Cursor/Grok retain their existing helper selection.
+  node - "$ROOT_DIR" "$dst_root" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [sourceRoot, destinationRoot] = process.argv.slice(2);
+const excludedDirectories = new Set(['node_modules', '__pycache__', 'sandbox-test', 'evidence', 'out', 'reports', 'dist']);
+const scriptExtensions = new Set(['.sh', '.js', '.mjs', '.py']);
+const templateExtensions = new Set(['.template', '.json', '.yaml', '.yml', '.sh', '.md']);
+const hiddenTemplateNames = new Set(['.claude-code-harness.config.yaml.template', '.claude-code-harness-version.template']);
+
+function copySources(relative) {
+  const source = path.join(sourceRoot, relative);
+  for (const entry of fs.readdirSync(source, {withFileTypes: true})) {
+    const child = path.join(relative, entry.name);
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('.') && !excludedDirectories.has(entry.name)) copySources(child);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const extension = path.extname(entry.name);
+    const parts = child.split(path.sep);
+    if (entry.name.startsWith('.') && !(parts[0] === 'templates' && hiddenTemplateNames.has(entry.name))) continue;
+    const allowed = parts[0] === 'templates'
+      ? templateExtensions.has(extension)
+      : scriptExtensions.has(extension) || (parts[1] === 'lib' && ['.json', '.txt'].includes(extension));
+    if (!allowed) continue;
+    const destination = path.join(destinationRoot, child);
+    fs.mkdirSync(path.dirname(destination), {recursive: true});
+    fs.copyFileSync(path.join(sourceRoot, child), destination);
+    fs.chmodSync(destination, fs.statSync(path.join(sourceRoot, child)).mode & 0o777);
+  }
+}
+
+copySources('scripts');
+copySources('templates');
+NODE
 }
 
 copy_hook_script_closure() {
@@ -245,7 +292,7 @@ EOF
 ---
 name: advisor
 description: Non-executing advisor for advisor-request.v1 in Cursor.
-model: claude-opus-4-7-thinking-xhigh
+model: claude-fable-5
 readonly: true
 ---
 
@@ -309,6 +356,10 @@ build_claude() {
   copy_tree "${ROOT_DIR}/.claude-plugin" "${OUT_DIR}/.claude-plugin"
   write_normalized_manifest "claude" "${ROOT_DIR}/.claude-plugin/plugin.json" "${OUT_DIR}/.claude-plugin/plugin.json"
   copy_tree "${ROOT_DIR}/skills" "${OUT_DIR}/skills"
+  # Claude-host Breezing uses the same companion/reviewer transport as Codex;
+  # ship the complete helper closure rather than a proxy without its caller.
+  copy_runtime_helpers "${OUT_DIR}"
+  copy_workflow_runtime_sources "${OUT_DIR}"
   copy_tree "${ROOT_DIR}/agents" "${OUT_DIR}/agents"
   copy_tree "${ROOT_DIR}/hooks" "${OUT_DIR}/hooks"
   copy_hook_script_closure "${OUT_DIR}" ".claude-plugin/hooks.json"
@@ -327,12 +378,39 @@ build_codex() {
   mkdir -p "${OUT_DIR}/.codex-plugin"
   write_normalized_manifest "codex" "${ROOT_DIR}/.codex-plugin/plugin.json" "${OUT_DIR}/.codex-plugin/plugin.json"
   copy_tree "${ROOT_DIR}/codex/.codex/skills" "${OUT_DIR}/skills"
+  # Codex's native worker/reviewer profiles are managed artifacts generated
+  # from hosts.toml. A dist without them silently falls back to generic routes,
+  # so treat the profiles as required rather than an optional mirror.
+  local agents_dir="${ROOT_DIR}/codex/.codex/agents"
+  if [ ! -d "${agents_dir}" ]; then
+    echo "missing generated Codex agent profiles: ${agents_dir} (run harness gen)" >&2
+    exit 1
+  fi
+  for profile in worker.toml reviewer.toml; do
+    if [ ! -f "${agents_dir}/${profile}" ]; then
+      echo "missing generated Codex agent profile: ${agents_dir}/${profile} (run harness gen)" >&2
+      exit 1
+    fi
+  done
+  copy_tree "${agents_dir}" "${OUT_DIR}/agents"
   copy_tree "${ROOT_DIR}/skills" "${OUT_DIR}/cursor-skills"
 
   # Codex skills call bundled Harness helpers through HARNESS_PLUGIN_ROOT.
-  # Keep this list narrow: these are runtime helpers needed by the shipped
-  # Codex skill surface, including cursor:setup which builds the Cursor pack.
+  # Include workflow helper dependencies and templates as well as the shared
+  # host setup helpers, including cursor:setup which builds the Cursor pack.
   copy_runtime_helpers "${OUT_DIR}"
+  copy_workflow_runtime_sources "${OUT_DIR}"
+
+  # codex-companion.sh performs worktree fingerprint capture before and after
+  # every task. Ship the launcher and all supported platform binaries so the
+  # generated package remains executable outside the source checkout.
+  mkdir -p "${OUT_DIR}/bin"
+  for bin in harness harness-darwin-amd64 harness-darwin-arm64 harness-linux-amd64 harness-windows-amd64.exe; do
+    if [ -f "${ROOT_DIR}/bin/${bin}" ]; then
+      cp "${ROOT_DIR}/bin/${bin}" "${OUT_DIR}/bin/${bin}"
+    fi
+  done
+  cp "${ROOT_DIR}/VERSION" "${OUT_DIR}/VERSION"
 }
 
 normalize_cursor_skill_invocation() {

@@ -6,28 +6,224 @@ Change history for claude-code-harness.
 
 ## [Unreleased]
 
+### Added
+
+- Retain the fork's reviewable daily synchronization workflow for
+  `Chachamaru127/claude-code-harness`, including explicit workflow-dispatch CI.
+- Retain the fork's PR review receipt, provenance, and fail-closed merge gate
+  across Claude, Codex, and OpenCode distributions.
+
 ### Changed
 
-- GitHub Free の private repository で branch-protection API が既知の403を返す場合、agent merge は owner の `harness merge <sha>` コメントを求めず、review receipt・live PR base/head・非Draft/CLEAN・全CI成功を確認して続行するようにした
+- Integrate upstream v5.15.0 while preserving fork-specific workflow,
+  distribution-freshness, and review-gate behavior. Historical fork task IDs
+  use the `F139`-`F147` namespace to avoid colliding with upstream phases.
+- Install the PR review, result writer, and PR closeout helpers in explicit
+  Codex setup flows and refresh Codex skills in an already-installed plugin cache.
 
-## [5.9.1] - 2026-08-26
+### Fixed
+
+- Keep plugin-cache self-refresh from copying a file or directory onto itself.
+- Keep a later `REQUEST_CHANGES` review from reusing an older approval receipt,
+  and allow the documented GitHub Free private-repository fallback only after
+  live PR/base/head and successful-CI checks pass.
+
+## [5.15.0] - 2026-09-06
+
+### Added
+
+- Add a self-contained Japanese product guide showing what to request and
+  what results to expect. Keep model settings in expandable details and make
+  the task flow readable on mobile screens.
+
+### Changed
+
+- Describe current task execution, role defaults, manual model choices,
+  progress reporting, and restart behavior in the English, Japanese, and Codex
+  READMEs. Distinguish task-count progress from acceptance results.
+- Route Claude deep-planning and advisor defaults to Fable 5.1/high and Codex frontier
+  roles to GPT-6 astra. Keep lightweight workers and existing Codex role effort
+  separate, and retain the isolated Sonnet security reviewer.
+- Calibrate active workflow, agent, embedded CLI, and setup prompts around
+  scoped outcomes, recoverable inputs, independent delegation, and observed
+  completion evidence. Preserve required checks, review limits, and permissions.
+
+### Fixed
+
+- Keep handoff timestamps numeric during session initialization and resume
+  on both GNU and BSD systems, so Linux can restore structured handoffs.
+- Isolate advisor configuration regression tests from the operator's active
+  settings while continuing to verify explicit project model choices.
+- Normalize supported working-directory aliases before native companion
+  dispatch so reviews inspect the requested project.
+- Deliver large plan context and worker status through input streams, avoiding
+  operating-system argument limits while retaining full evidence and bounded summaries.
+- Bind the managed Codex reviewer profile during setup so an existing default inline
+  role cannot silently shadow its model and instructions. Preserve custom
+  role bindings and distinguish native permission inheritance from companion
+  read-only review execution.
+- Preserve explicit Codex model and effort through companion dispatch, including
+  Codex `ultra`, without prompt-based effort calculation replacing role settings.
+- Resolve advisor defaults for the target project and preserve its explicit
+  model choice instead of reading configuration from the installed plugin.
+- Keep task execution and the primary-environment guard on the same working
+  directory and write intent; reject unsupported config overrides and extra
+  writable roots before dispatch.
+- Include the runtime helpers required by advisor and loop execution in the
+  Claude and Codex plugin packages.
+- Carry the selected plan, completion criteria, concrete failure evidence, and
+  prior advice through loop worker and advisor dispatch, including restart.
+- Preserve Go worker task descriptions and review refinements, and make the
+  opt-in review verdict contract explicit instead of accepting an `APPROVE`
+  substring in contradictory text.
+- Include task completion criteria, inferred scope, exclusions, and reviewer
+  notes in browser review instructions without changing its schema or routes.
+
+## [5.14.1] - 2026-08-31
+
+### Fixed
+
+- **secret-read floor: `~/` vs absolute allowlist, and write-only `cat >`**:
+  `HARNESS_RUNTIME_FLOOR_SECRET_ALLOW` compared command tokens and declarations
+  as raw strings, so a declared `/Users/<home>/LocalWork/` missed
+  `~/LocalWork/.../.env`. Matching now expands a leading `~/` on both sides
+  (process home directory). That is spelling normalization, not a wider
+  allowlist. Bare `~` / `~/` stay invalid. `$HOME` and `~user` are not
+  expanded. Separately, `cat > file` / `cat >> file` / `cat > file <<EOF`
+  with no input file was treated as a read verb, so a later
+  `AISDR_ENV_FILE=.../.env bash script` in the same Bash string was denied.
+  Write-only `cat` is no longer a secret-read verb. `cat FILE`,
+  `cat FILE > out`, `cat FILE>/out`, `cat > out FILE`, and `cat < FILE`
+  still deny. `&>` / `&>>` are treated as redirections, not job separators,
+  so `cat > out &> /dev/null .env` still denies.
+
+## [5.14.0] - 2026-08-31
+
+### Added
+
+- **Deferred-ops approval flow (`bin/harness deferred`) + progress surface queue (Phase 140.2)**:
+  the operator side of `destructive_delete=defer`. `bin/harness deferred list` shows the
+  pending entries of `.claude/state/deferred-ops.jsonl` with a copy-paste approve command;
+  `bin/harness deferred approve <id>` flips the single pending line with that id to
+  `approved`, and the guardrail then lets the **next identical run** through exactly once
+  (`approved → consumed`, one-shot consume — same shape as plan preapproval — with an
+  `R05_DEFER_APPROVED` advisory message and a `policy: defer` record in
+  `destructive-delete.jsonl`). Un-approved entries keep denying; after the approval is
+  spent the same command denies and re-queues again. No "approve all", no auto-approval
+  path. The progress surface gains an additive `deferred_ops_pending` section
+  (`progress-snapshot.v1`) listing pending deletions with their approve commands
+  (same shape as the Phase 136.2 writing-lint queue).
+  Review follow-up (independent reviewer findings, both fixed pre-merge): (1) the
+  "operator-only" boundary is now enforced, not just documented — new guardrail rule
+  **R16:no-self-approve-deferred** denies agent Bash invocations of
+  `harness deferred approve` (list stays allowed), and `deferred-ops.jsonl` /
+  `destructive-delete.jsonl` joined the R02/R03 protected-path deny set so an agent
+  cannot forge `"status":"approved"` lines (interpreter writes remain a documented
+  residual, same class as the R05 symlink residual); approve stamps `approved_by`.
+  (2) `recordDeferredOp`'s dedup-check + append now runs under the same file lock as
+  the approve/consume flips, closing a lost-write / duplicate-pending race. R05
+  (defer deny) and R16 joined the deny-surface baseline and rule-coverage pins.
+
+- **`destructive_delete: defer` (Phase 140.1、無人 run の ask 停止対策)**: R05 (rm -rf / find -delete) で warn なら ask になる場面 (root 外の綴り・`..`・未解決 `$VAR`・glob・素の `.`) を、ask の代わりに **deny + 行動契約** に置き換える設定値。deny は run を止めず (エージェントに理由が返り続行する)、操作は `.claude/state/deferred-ops.jsonl` に 1 行 (`id` / `timestamp` / `session_id` / `agent_id` / `cwd` / `command` / `rule_id` / `policy` / `reason` / `status: pending`) 積まれる。同一コマンドの再試行は deny のままキューに重複しない。warn が通す場面は defer でも warn のまま (allow + `destructive-delete.jsonl` 記録)。既定は引き続き warn。設定は `harness.toml [safety.permissions] destructiveDelete` / `.claude-code-harness.config.yaml safety.destructive_delete` / env `HARNESS_DESTRUCTIVE_DELETE_POLICY`。承認 CLI は 140.2 の `bin/harness deferred` で追加済み
+
+| 場面 | ask (opt-out) | warn (既定) | defer (新設) |
+|---|---|---|---|
+| 削除対象が agent 所有と静的に証明できる | allow | allow | allow |
+| 相対 / root 配下の綴りだが前置コマンドあり | ask | allow + warn 記録 | allow + warn 記録 |
+| root 外・`..`・`$VAR`・glob・素の `.` | ask | ask | **deny + キュー** (run は止まらない) |
+
+実効性契約: `tests/test-r05-destructive-delete-policy.sh` に実バイナリ probe 4 本 (deny + キュー 1 行 / 再試行で重複なし / warn 経路の回帰なし) を追加 (修正前 RED、修正後 GREEN)。Go 側は `go/internal/policy` と `go/internal/guardrail` に 10 本追加
+
+## [5.13.2] - 2026-08-29
+
+### Fixed
+
+- **配布経路の修理: SessionStart の `scripts/sync-plugin-cache.sh` が plugin cache と marketplace 複製を壊していた**。他プロジェクトで `claude plugin list` が Agents (0) になり、`claude plugin update` が 5.13.1 を見つけられなかった原因は Claude Code ではなく CCH 自身の hook script (2026-08-29 に旧 script を空の HOME で走らせて再現)。
+
+| 継ぎ目 | 変更前 | 変更後 |
+|---|---|---|
+| 版ごとの cache dir | まだ入っていない版の dir を同期分 (hooks / skills / scripts / output-styles / VERSION) だけで先に作る。Claude Code は後で既にある dir をそのまま使うので、agents / bin / templates の無い plugin になる (5.8.0 / 5.9.0 / 5.13.0 / 5.13.1) | 既に入っている版だけ更新し、無ければ作らない |
+| marketplace 複製の版 | 別 worktree の VERSION / plugin.json を複製へ書き戻す。`claude plugin update` は複製の plugin.json を最新判定に使うため「5.13.0 が最新」と答え、5.13.1 が入らない | 複製の git HEAD が同じ版のときだけ同期し、VERSION / plugin.json / marketplace.json は書かない |
+| 複製の private path 削除 | tracked の `docs/research/*` を削除し、複製の git を恒久 dirty (21 件の `D`) にする | 削除は cache 側のみ |
+| agents/ | 同期対象外 | `critical_dirs` に追加 (既に入っている cache の欠けも埋まる) |
+
+契約テスト 4 本を `tests/test-sync-plugin-cache.sh` に追加 (旧 script で RED、修正後 GREEN)。manifest (plugin.json) と Go の生成コードは変更なし。`agents/` は宣言なしで自動発見される。
+
+### Changed
+
+- **同期レポート `docs/reports/2026-08-27-harness-sync-status.html` を追加 (docs)**: harness-sync の結果 (Plans.md と git のズレ 0 件、Phase 134〜142 の 49 task 中 32 完了) と配布欠けの判断材料。初版の推定「CC が manifest 宣言の部品だけ複製する」は上記の再現で否定されたため改訂済み。Plans.md に Phase 143 (この hotfix) を追加し、次スプリント順 143 → 140 → 142 → 138 を記録 (operator 裁定 2026-08-29)。判断の記録は `.claude/memory/decisions.md` D72
+
+## [5.13.1] - 2026-08-26
+
+### Changed
+
+- **Plans.md: 2026-08-24 設計レビューの結論を反映**。Phase 140（無人 run の ask 序盤停止対策）を次スプリントの最優先に明記し、Phase 142（記憶パイプライン修理・注入棚卸し・日本語 lint 辞書 seeding・ルール引退提案・native 機能重複点検、7 task。レビュー時の作業名は Phase 141 だったが、同時並行で main へ shipped したセッション協調パイプライン Phase 141 との番号衝突により着地時に Phase 142 へ改番）を新設。裏付けの 2 件の判断材料 HTML（2026-08-24 ハーネス設計レビュー、2026-08-26 Phase 140/141 追記レビュー）を `docs/reports/` に追加し索引を更新
+
+## [5.13.0] - 2026-08-25
+
+### Added
+
+#### セッション協調パイプライン (Phase 141)
+
+同じ PC 上の複数セッション (Claude Code / Codex / Cursor / Grok / hermes) が**互いを名簿で見て、直接メッセージを送れる**パイプラインを通しました。何に使うかは利用者に委ねる土台であり、送信の検証は既定オフです。
+
+| 継ぎ目 | 変更前 | 変更後 |
+|---|---|---|
+| 名簿の寿命 | `Stop` で presence を削除。Stop はターン境界なので、生きているセッションが最初の 1 ターン後に名簿から消えていた | 削除は `SessionEnd`、`Stop` では mtime を更新。セッションが続く限り名簿に載り続ける |
+| 名簿の更新 | `SessionStart` の 1 回のみ | 毎ターン更新。refresh は mtime だけを触るので `session declare` の task/label は保持される |
+| 身分証 | `HARNESS_LIVEMSG_TEAM` / `..._AGENT` を読む側だけ存在し、書く側が誰もいなかった | `hook session-register` が `CLAUDE_ENV_FILE` へ **`export` 形式**で書き出す (素の `KEY=VALUE` は子プロセス env に届かない)。`deliveryidentity.Resolve()` の優先順位は不変 |
+| broadcast の届く範囲 | presence は worktree 横断で共有、broadcast だけ worktree ローカル。姿は見えるのに通知が届かなかった | broadcast も git-common-dir 親の共有 scope へ統一 |
+| harness-mem との同居 | `active.json` を自スキーマ決め打ちで読み、他ツールのエントリを 24h prune で削除していた | `map[string]json.RawMessage` で読み書きし、知らないエントリは触らず保持 |
+
+- **エージェント主導の送信**: `skills/session-send/SKILL.md` を追加。`bin/harness inbox send --team/--from/--to/--subject` を案内し、送ってよいもの (完了通知 / これから触る場所の宣言 / 引き継ぎ) と送らないもの (作業中の相談 / 推測) を線引きする。根拠は CooperBench の測定 — 同一ファイルを 2 エージェントが触ると成功率が単独の約半分に落ち、失敗の 63% が相手の変更についての誤った思い込みだった
+- **検証の関所 (opt-in、既定 off)**: `[livemsg] verification = "off" | "on"` を追加。解決は `destructiveDelete` と同じ 5 段 (env / project YAML / project `harness.toml` / plugin `harness.toml` / 既定)。**off の間は送信経路が gate を呼ばない**ため、検証を使わない利用者にコストがかからない。on では機械チェック (ファイル実在 / commit 実在 / `git status` との一致) が判定を担う。機械で判定できない主張の委譲先として read-only agent の口 (`Reviewer` interface + `agents/livemsg-gate.md`) を用意しているが、**本実行経路にはまだ接続していない**。判定役が未設定のときは HOLD にせず `not_observed` を記録して機械チェックの結果を通す (判定役の不在は判定ではない。ここで止めると「テストが成功しました」のような完了通知が全て止まり、パイプラインの目的そのものを壊す)。`HOLD` は宛先へ 1 件も届けず、理由を送信側に返す (`templates/schemas/livemsg-gate.v1.json`)
+- **hermes を 5 ツール目として追加**: `hosts.toml` に `[hermes]` を追加。hermes は `~/.hermes/config.yaml` の YAML 宣言型のため hook ファイルは生成せず、turn delivery のみ配線
+- 配線検証: `scripts/ci/check-session-pipeline-wiring.sh` (7 点) を `tests/validate-plugin.sh` に配線 (配線前 RED 実測済み)
+
+### Fixed
+
+Phase 141 のレビューゲートが見つけた 5 件。いずれも「呼び出しは書かれているが、その結果が上の層で捨てられている」という同じ形をしていました (D58「配線した != 効いている」)。
+
+- **検証 gate の verdict が捨てられていた**: 送信経路が gate を呼びながら戻り値を無視していたため、`HOLD` を返しても配送されていた。verdict で分岐し、理由を送信側へ返す
+- **検証 on が通常のメッセージを弾いていた**: パス判定が「ドットを含むトークン」を全てファイル名とみなしていたため、`Go 1.24.0` や `alice@example.com` を含む完了通知が `HOLD` になっていた。スラッシュを含まない綴りは既知の拡張子を要求する
+- **hermes の delivery がどこにも出力されていなかった**: `harness gen` が enforcement hook の「生成保留」で先に return し、delivery 生成に到達していなかった。`hosts.toml` に宣言はあるのに実出力ゼロ。保留は enforcement だけに限定し、`requires_home_path` で未インストールのホストは明示的にスキップする
+- **メッセージの宛先を特定できなかった**: `session list` に `team` / `agent` 列が無く、`session-send` skill はそれを読めと案内していた。breezing 実行中は agent が `BREEZING_ROLE` で session_id と一致しないため、案内どおりに送ると**エラーも出ないまま未達**になっていた。presence card が解決済みの identity を持ち、名簿がそれを表示する
+- **presence card の新フィールドが serialize 時に落ちていた**: `encodePresenceCard` が Label / Task / Since しかコピーしておらず、追加した Team / Agent が黙って捨てられていた
+
+配線チェック `scripts/ci/check-session-pipeline-wiring.sh` は、上記 3 件目を検出できませんでした (設定文字列の存在しか見ていなかった)。実バイナリを走らせて実出力を検査する形に変更しています。
+## [5.12.0] - 2026-08-24
+
+### Added
+
+- **Codex Breezing の実装 Worker を `gpt-5.6-luna` / `max` に統一**。Codex-native の `breezing` は setup が配置する managed custom agent `worker.toml` を選び、`breezing --codex` は中央の worker route を解決する。公式 companion 1.0.6 が受け付けない `max` は Harness が raw `codex exec` の reasoning config へ変換する。reviewer / advisor / deep は従来どおり `gpt-5.6-sol` / `xhigh` のまま
+- **Codex review に Sol/xhigh を確実に適用し、中断時の残留 process を防止**。review ごとの local proxy が `model` / `review_model` / `model_reasoning_effort` を `codex app-server` へ渡し、official companion の結果形式を保持する。`review --commit` は provider dispatch 前に拒否し、成功した delegation だけを ledger に記録する。TERM/INT は companion と proxy へ同時転送し、最大 1 秒待機後に残存 child を KILL/reap する
+
+### Changed
+
+- **Codex setup と host distribution の安全境界を追加**。local/remote setup は preflight 後に、Harness 所有の legacy `[notify]` 2 形態だけを backup + atomic migration する。custom/ambiguous shape は no-mutation fail とし、`features.multi_agent` と `features.default_mode_request_user_input` を欠落時に追加する。Claude/Codex dist は worker/reviewer profile と review runtime-helper closure を同梱し、Codex dist は fingerprint 実行に必要な Harness platform binaries も含める。primary-environment guard が拒否した task は provider 起動前に止め、成功 delegation の ledger に数えない
+- **README の Codex 導入説明を実効経路に同期**。英語・日本語のトップ README と `codex/README.md` に、更新後の setup 再実行と Codex 再起動、Worker の Luna/max、Reviewer の Sol/xhigh、メインセッションと明示 backend は固定対象外という境界を追加する
+- **Harness release の公開手順を tag-triggered workflow に統一**。古い直接 Release 作成・編集例を削除し、CHANGELOG を本文として公開する workflow と公開後の検証コマンドを正本にする
+
+#### Verification boundary
+
+- Windows named-pipe path は fixture/static checks のみで、live Windows provider/app-server は未観測。今回の実装は provider/API 呼び出し、実 HOME 変更、live install を行わない
+
+## [5.11.0] - 2026-08-22
+
+### Changed
+
+- **guardrail R05: `destructive_delete` の既定値を `ask` → `warn` に変更** (operator 裁定 2026-08-22)。未設定のプロジェクトでも、静的に検証できない削除は「確認で停止」ではなく「allow + `R05_WARN` 警告 + `.claude/state/destructive-delete.jsonl` 記録」になる。root 外の綴り・`..`・未解決 `$VAR`・glob・素の `.` の常時 ask backstop と runtime floor は不変。従来挙動に戻すには repo の `harness.toml` の `[safety.permissions]` セクションに `destructiveDelete = "ask"` (または yaml `safety.destructive_delete: ask`)。明示された不正値は従来どおり ask に正規化 (fail-safe)。git 外の消えたら困るデータを root 配下に持つ repo と guardrail 開発時は ask への opt-out を推奨
+
+## [5.10.0] - 2026-08-22
+
+### Added
+
+- **guardrail R05: `destructive_delete = ask | warn` (HOTL opt-in)**。`rm -rf` / `find -delete` の対象を静的に「agent 所有」と証明できないとき (cd 後の相対パス、前置コマンドあり) は従来どおり既定 `ask`。`warn` を選ぶと、綴りが project root 配下 / 自セッション scratch / 相対の削除は確認なしで通し、`R05_WARN` 警告を注入して `.claude/state/destructive-delete.jsonl` に記録する (事後レビュー用)。root 外の綴り・`..`・未解決 `$VAR`・glob・素の `.` / `/` は warn でも `ask` のまま (HOTL 契約 invariant 3 の blast-radius backstop)。warn の approve は advisory 扱いで、同一 compound command が後続 deny/ask ルール (R06 force-push / R08 reviewer no-write / R10 / R11 / R12) にも該当する場合はそちらが常に勝つ (bot review 指摘の precedence 欠陥を修正)。設定は `.claude-code-harness.config.yaml` `safety.destructive_delete` / `harness.toml` `[safety.permissions] destructiveDelete` / env `HARNESS_DESTRUCTIVE_DELETE_POLICY`。133.10 の symlink 残余リスクは warn 下で意図的に受容 (既定は不変)。契約テスト `tests/test-r05-destructive-delete-policy.sh` (実バイナリ probe) を `validate-plugin.sh` に配線
 
 ### Changed
 
 - **release: plugin tag (`{plugin-name}--v{version}`) を廃止し semver tag `vX.Y.Z` に一本化** (D69)。`marketplace.json` の `source` が相対パスで install は tag を参照しないため実効性が無く、v5.6.0 以降 3 リリース連続で欠番のまま実害が無かった。harness-release の手順・test pin を実態に合わせた。既存の `claude-code-harness--v5.5.0` 以前の tag は履歴として残す
-- PR後のreviewは、判定・必須対応（理由と対応）・改善提案を含むMarkdownをそのまま保存し、merge receipt用の`review-result.v1` JSONとは分離するようにした
-
-### Added
-
-- Claude Code / Codex の A lane PR は、共通 receipt を記録した後にだけ agent merge できるようになった。receipt と local/remote PR base/head が一致しない更新は再レビューを要求する
-- Chachamaru 本家の `main` を毎日検査し、fork 未取込時だけ reviewable な同期 PR を作る GitHub Actions workflow を追加。SessionStart は、CI と `$harness-review` を通して merge 済みの fork だけを従来どおり配布する
-
-### Fixed
-
-- PR review receipt は `harness-review code` の workflow / mode と人向け report の SHA-256 を必須照合し、generic `reviewer` の自由文・正規化JSONだけでは agent merge を通せないようにした。後続 `REQUEST_CHANGES` は同一 HEAD の古い APPROVE receipt を無効化する
-- 自動作成する同期PRのCIが承認待ちで止まるため、追加secretを使わず `workflow_dispatch` で全CIを対象branchへ起動するようにした
-- GitHub Freeのprivate repositoryでbranch-protection APIが返す既知の403では、review済みbase/headの再照合とhead pinでagent mergeを続行できるようにした。strict protectionが利用できる場合以外のAPIエラーは従来どおり拒否する
-- Claude plugin配布を更新し、PR review gate・review result writer・PR closeout helperを同じversionへ同期した。旧cacheが新しい手順だけを読み、gate本体を見つけられない状態を解消した
+- **README.md / README_ja.md を再構成し重複を削減**: 「The loop」のコマンド表とステージ表を 1 表に統合、Documentation 表からバッジ / Install by tool 表にすでに張ってあるリンク (Claude Code compatibility、Cursor integration) を除去。ピン済みの tier 表記・見出し・文言はすべて維持 (`tests/test-readme-product-surface.sh` 等 144/144 green)
 
 ## [5.9.0] - 2026-08-17
 
@@ -68,10 +264,6 @@ Change history for claude-code-harness.
 - Worker 契約に NG-4 (一時領域の掃除で operator を停止させない) を追加
 
 ### Fixed
-
-#### PostToolUse の記録専用 hook が、成功時にも親コンテキストへ空の応答を添付していた問題
-
-`log-toolname`・`usage-tracker`・`clear-pending` は記録や状態解消が成功した後、親エージェントに追加情報を返さないようにしました。失敗・承認・競合・品質ゲート・進捗のシグナルは対象外のままです。
 
 #### session-log の分割警告が、移動できるエントリが 1 件も無い状態でも出続けていた問題
 
@@ -6094,8 +6286,16 @@ Purpose: 自己修正ループ失敗時に「止まるだけ」から「次の�
 
 For v2.9.x and earlier, see [GitHub Releases](https://github.com/Chachamaru127/claude-code-harness/releases).
 
-[Unreleased]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.1...HEAD
-[5.9.1]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.0...v5.9.1
+[Unreleased]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.15.0...HEAD
+[5.15.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.14.1...v5.15.0
+[5.14.1]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.14.0...v5.14.1
+[5.14.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.13.2...v5.14.0
+[5.13.2]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.13.1...v5.13.2
+[5.13.1]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.13.0...v5.13.1
+[5.13.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.12.0...v5.13.0
+[5.12.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.11.0...v5.12.0
+[5.11.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.10.0...v5.11.0
+[5.10.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.9.0...v5.10.0
 [5.9.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.8.0...v5.9.0
 [5.8.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/Chachamaru127/claude-code-harness/compare/v5.6.0...v5.7.0

@@ -56,6 +56,12 @@ type HookResult struct {
 	Reason        string       `json:"reason,omitempty"`
 	SystemMessage string       `json:"systemMessage,omitempty"`
 	RuleID        string       `json:"-"`
+	// Advisory marks an Approve that must NOT short-circuit rule evaluation:
+	// later deny/ask rules still run and win. It exists for opt-in relaxations
+	// (R05 destructive_delete=warn) so that a convenience approval can never
+	// preempt a hard prohibition declared later in the rule slice (e.g. R08
+	// breezing-reviewer no-write). Engine-internal.
+	Advisory bool `json:"-"`
 }
 
 // ---------------------------------------------------------------------------
@@ -144,10 +150,16 @@ type RuleContext struct {
 	CodexMode                 bool
 	BreezingRole              string // "" means not in breezing mode
 	ProtectedBranchPushPolicy string // ask, deny, or allow
+	DestructiveDeletePolicy   string // warn (default since v5.11.0) or ask (per-repo opt-out) — R05 HOTL
 	// ConsumePlanPreapproval is supplied by internal/guardrail. Policy rules
 	// call it only at a specific ask branch so state is consumed only when that
 	// rule would otherwise interrupt the operation.
-	ConsumePlanPreapproval  func(operation, command string) bool
+	ConsumePlanPreapproval func(operation, command string) bool
+	// ConsumeDeferredOp is supplied by internal/guardrail (140.2). The R05
+	// defer branch calls it with the operation's DeferredOpID right before
+	// returning deny; a spent operator approval turns that one call into an
+	// advisory approve. nil when there is no project root to hold a queue.
+	ConsumeDeferredOp       func(id string) bool
 	ProtectedPathAskList    []ProtectedPathAskEntry
 	TddEnforceLevel         string // off, central, or max
 	TddHookEnabled          bool

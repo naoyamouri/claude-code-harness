@@ -62,13 +62,22 @@ if $ARGUMENTS == "":
 
 <!-- 上記ブロックは AUTO-START CONTRACT。skill-editing.md「最冒頭 3 行以内」ルール準拠。patterns.md P27 解法 3 点セット (機械可読条件 + 禁止行動 literal + AUTOSTART marker) -->
 
+### 自主停止の禁止 (140.3、2026-08-22 の release run で 2 回発生した停止パターンの再発防止)
+
+以下は禁止行動。literal に列挙する (AUTOSTART pattern と同じ方式):
+
+- background 待ちで turn を終えて停止しない (turn を終えると background 子プロセスは残らない)
+- 「検証を待ちます」「確認します」「完了を待機します」で turn を終えない
+- 待つなら同期実行 (foreground / Monitor) で待ち切る。待てないものは保留として報告し、次のタスクへ進む
+
 ### Output Contract (P35: 「止まったように見える」UX 対策)
 
-skill 結論時の output の **最後の 1 行**は必ず次の literal を含める:
+`<local-command-stdout>` で host へ結果を中継する場合だけ、output の **最後の 1 行**に次の literal を含める:
 
 `↑この結果は Claude が要約します。Enter キーで次へ進むか、新規 prompt で別の指示を出してください。`
 
 これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。
+host の最終回答は実行済み操作、公開の検証結果、残る gate を返す。要約や検証の予告だけで終了しない。
 
 `harness-release` / `/release` だけが入力された場合、これは
 **「今までの作業をコミットし、PR/main 反映まで完了してリリースしたい」** という意味として扱う。
@@ -130,7 +139,7 @@ git commit -m "<type>: <summary>"
 ```
 
 commit message は review summary / Plans.md task / branch name から短く生成する。
-判断できない場合は `AskUserQuestion` で 2〜3 個の commit message 候補を出す。
+表現だけが未決なら既存の commit 規約に沿って生成する。review 済みの対象そのものが曖昧な場合だけ、その対象を確認する。
 work commit 作成後に `.claude/state/review-result.json` の `commit_hash` を確認または更新し、
 release preflight へ進む。
 
@@ -171,7 +180,7 @@ owner / branch / release asset / CI metadata の自動取得は host ごとの�
 ## 単一ゲートフロー
 
 Bare release（0. Review Gate → 0.5 Work Commit Gate）→
-Pre-Gate（1. Preflight → 2. Version file 検出 → 3. バージョン読み取り → 4. plugin version sync preflight → 5. bump 推定 → 6. 新バージョン算出 → 7. CHANGELOG ドラフト → 8. Release notes ドラフト）→
+Pre-Gate（1. Preflight → 2. Version file 検出 → 3. バージョン読み取り → 4. plugin version sync preflight → 5. bump 推定 → 6. 新バージョン算出 → 7. CHANGELOG ドラフト → 8. CHANGELOG release body preview）→
 **単一確認ゲート**（下記「Confirmation Gate」参照、`yes` / `<修正指示>` / `cancel` の 3 択）→
 Post-Gate（9. Version file 書き換え → 10. CHANGELOG 昇格 → 11. commit → 12. branch push → 13. PR 作成/更新 → 14. default branch merge → 15. 到達可能性確認 → 16. semver tag → 17. tag push → 18. workflow publish verify → 19. 完了報告）
 の 3 段階で進む。各段の詳細は「Pre-Gate 詳細」「Confirmation Gate」「Post-Gate 詳細」を参照。
@@ -266,10 +275,11 @@ python3 "${HARNESS_PLUGIN_ROOT}/scripts/check-release-version-sync.py" --root . 
 `[Unreleased]` の内容を切り出し、`[<new>] - YYYY-MM-DD` セクションと compare link を組み立てる（まだ書き込まない）。
 詳細: [release-notes.md](${CLAUDE_SKILL_DIR}/references/release-notes.md#changelog-ドラフト作成メモリ上pre-gate-ステップ-7)
 
-### 6. Release Notes ドラフト作成 (メモリ上)
+### 6. CHANGELOG release body preview (メモリ上)
 
-`## [<new>]` セクションの内容を元に、GitHub Release 用のマークダウン（What's Changed / Before-After / Added-Changed-Fixed / フッター）を生成する。
-必須要素・生成方法・検証チェックの詳細: [release-notes.md](${CLAUDE_SKILL_DIR}/references/release-notes.md)
+tag-triggered workflow が公開する本文は、昇格後の `## [<new>]` セクション本文そのもの。
+別の英訳・要約・フッターを生成せず、workflow と同じ抽出境界の本文をそのまま preview する。
+抽出方法・検証チェックの詳細: [release-notes.md](${CLAUDE_SKILL_DIR}/references/release-notes.md)
 
 ## Confirmation Gate
 
@@ -287,9 +297,8 @@ Release Plan: v<old> → v<new> (<bump>)
    [<new>] - YYYY-MM-DD として確定
    Compare link を追加
 
- GitHub Release notes preview:
-   <最初の 10 行>
-   ...
+ CHANGELOG release body preview (workflow が公開する本文):
+   <workflow が公開する本文の全行>
 
  Files to modify:
    - <version file>
@@ -342,14 +351,14 @@ Claude plugin project の場合、dry-run でも `python3 "${HARNESS_PLUGIN_ROOT
 | `HARNESS_RELEASE_BRANCH` | push 対象ブランチ (デフォルト: 現在のブランチ) |
 | `HARNESS_RELEASE_DEFAULT_BRANCH` | PR merge 先 default branch (デフォルト: `main`) |
 | `HARNESS_RELEASE_HEALTHCHECK_CMD` | Preflight で追加実行するコマンド |
-| `HARNESS_RELEASE_SKIP_GH` | `1` で GitHub Release 作成をスキップ |
+| `HARNESS_RELEASE_SKIP_GH` | `1` で GitHub publication verification をスキップ |
 
 ## CHANGELOG 書き方ルール
 
 `[Unreleased]` セクションは KaCL 標準サブセクション（`### Added`=minor / `### Changed`・`### Fixed`・`### Security`=patch / `### Deprecated`=minor / `### Removed`・`### Breaking Changes`=major）のいずれかを持つ必要がある。
 このスキルはこれらの見出しを機械的に解析するため、表記揺れ（`### Fix` / `### Bug Fixes` 等）は認識できない。
 
-GitHub Release notes の必須フォーマット・CHANGELOG の「今まで/今後」記法・merge 方式（squash 不採用）の詳細は
+CHANGELOG release body の preview 契約・CHANGELOG の書き方・merge 方式（squash 不採用）の詳細は
 [github-release.md](${CLAUDE_SKILL_DIR}/references/github-release.md) を参照。
 SemVer 判定基準・バッチリリース方針・Release Train Proposal の詳細は
 [versioning.md](${CLAUDE_SKILL_DIR}/references/versioning.md) を参照。
@@ -370,7 +379,7 @@ SemVer 判定基準・バッチリリース方針・Release Train Proposal の�
 
 - **PR ready / release ready 分離**: PR ready は review + evidence pack。release ready は version/tag/GitHub Release/CI まで。lane:fast / lane:gate は PR ready で止めてよい
 - **単一ゲート**: ユーザーの判断タイミングは 1 回だけ。mini-confirmation を挟むとラバースタンプ化して意味を失う
-- **事前に全て描く**: Post-Gate に入ってからの「考え直し」を禁ずる。Gate 前に全 draft を揃える
+- **事前に全て描く**: Gate 前に全 draft を揃える。Post-Gate は承認済み計画を実行し、新しい証拠で前提が崩れた場合は影響する操作を止めて報告する
 - **main 反映が完了条件**: release tag / GitHub Release は default branch 反映後にだけ作る。branch-only release は未完了として扱う
 - **失敗は transparent**: 途中で失敗したら自動ロールバックは試みず、ユーザーに現状を提示して判断させる
 - **プロジェクト非依存**: VERSION file 形式、mirror、residue check など特定環境の前提を持たない。本体 harness 固有の処理は `harness-release-internal` に分離

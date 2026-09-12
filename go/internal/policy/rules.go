@@ -191,6 +191,31 @@ var Rules = []GuardRule{
 		Evaluate:    r14TddRequiredLocalTrialResult,
 	},
 
+	// R16: deferred-ops approval is operator-only (140.2 review follow-up).
+	// destructive_delete=defer queues refused deletions for the OPERATOR to
+	// approve out-of-band; the deny reason and `deferred list` output hand the
+	// agent the exact approve command, so without this rule the agent one step
+	// from "done" could simply run it and unblock itself — an auto-approval
+	// path the 140.2 contract explicitly excludes. `deferred list` stays
+	// allowed (the agent is expected to report the queue at end of run).
+	{
+		ID:          "R16:no-self-approve-deferred",
+		ToolPattern: regexp.MustCompile(`^Bash$`),
+		Evaluate: func(ctx hookproto.RuleContext) *hookproto.HookResult {
+			command, ok := ctx.Input.ToolInput["command"].(string)
+			if !ok {
+				return nil
+			}
+			if !deferredApproveCommandPattern.MatchString(command) {
+				return nil
+			}
+			return &hookproto.HookResult{
+				Decision: hookproto.DecisionDeny,
+				Reason:   "R16: approving a deferred op is operator-only. Report the pending queue (bin/harness deferred list) and ask the operator to run the approve command themselves.",
+			}
+		},
+	},
+
 	// R15: block staging or committing secret files
 	{
 		ID:          "R15:no-stage-secret-file",
@@ -266,6 +291,58 @@ var Rules = []GuardRule{
 			// 種別や worktree にいるかどうかでは判断しない。
 			if dangerousRemovalTargetsAreAgentOwned(command, targets, ctx.ProjectRoot, ctx.Input.SessionID) {
 				return nil
+			}
+			// destructive_delete=warn (HOTL; product default since v5.11.0,
+			// per-repo opt-out via destructive_delete=ask). When the static
+			// analysis cannot PROVE the target is agent-owned — a relative
+			// target after `cd`, any preceding shell segment (133.10: a prior
+			// segment can plant a symlink so the same spelling resolves outside
+			// the worktree) — the default answer is "ask the human". Under warn
+			// the human is replaced by the agent's own judgement: the command is
+			// approved, a warning is injected, and the guardrail layer records
+			// the deletion for after-the-fact review. The 133.10 symlink
+			// residual is accepted knowingly under this mode; do not "simplify"
+			// warn into the default path. Out-of-root spellings, `..`, unresolved
+			// `$VAR`, globs and bare `.` still ask even under warn — that keeps
+			// the blast-radius backstop of spec.md HOTL invariant 3.
+			deletePolicy := NormalizeDestructiveDeletePolicy(ctx.DestructiveDeletePolicy)
+			if (deletePolicy == DestructiveDeletePolicyWarn || deletePolicy == DestructiveDeletePolicyDefer) &&
+				dangerousRemovalTargetsAreLexicallyLocal(command, targets, ctx.ProjectRoot, ctx.Input.SessionID) {
+				// Advisory: this approval must not preempt later deny/ask
+				// rules (R06, R08 reviewer no-write, R10, R11, R12) when the
+				// same compound command also matches them — see EvaluateRules.
+				return &hookproto.HookResult{
+					Decision:      hookproto.DecisionApprove,
+					SystemMessage: fmt.Sprintf("R05_WARN: destructive delete allowed without confirmation (destructive_delete=warn; target not statically verifiable, recorded in .claude/state/destructive-delete.jsonl):\n%s", command),
+					Advisory:      true,
+				}
+			}
+			// destructive_delete=defer (Phase 140.1): where warn would ask, an
+			// unattended run gets a deny that carries the behavioural contract
+			// (queued / do not retry / continue / report). The guardrail layer
+			// appends the operation to .claude/state/deferred-ops.jsonl keyed by
+			// DeferredOpID, so a retry keeps denying without a second entry.
+			// Without a project root there is nowhere to queue: fall through to
+			// ask, exactly like warn.
+			if deletePolicy == DestructiveDeletePolicyDefer && ctx.ProjectRoot != "" {
+				id := DeferredOpID("R05:confirm-rm-rf", ctx.Input.CWD, command)
+				// 140.2: an operator approval (bin/harness deferred approve
+				// <id>) is spent here to let exactly one run through. Advisory,
+				// like the warn approve: a later deny rule in the same compound
+				// command still wins — and burns the approval, same accepted
+				// trade-off as plan preapproval. The guardrail layer records
+				// the consumed execution with policy=defer.
+				if ctx.ConsumeDeferredOp != nil && ctx.ConsumeDeferredOp(id) {
+					return &hookproto.HookResult{
+						Decision:      hookproto.DecisionApprove,
+						SystemMessage: fmt.Sprintf("R05_DEFER_APPROVED: deferred op %s approved by operator; executing once and recording in .claude/state/destructive-delete.jsonl:\n%s", id, command),
+						Advisory:      true,
+					}
+				}
+				return &hookproto.HookResult{
+					Decision: hookproto.DecisionDeny,
+					Reason:   DeferredOpReason(id, command),
+				}
 			}
 			return &hookproto.HookResult{
 				Decision: hookproto.DecisionAsk,
@@ -531,14 +608,34 @@ func pathContainedIn(base, target string) bool {
 // If no rule matches, it returns approve.
 func EvaluateRules(ctx hookproto.RuleContext) hookproto.HookResult {
 	toolName := ctx.Input.ToolName
+	// An advisory approve (see HookResult.Advisory) is held back instead of
+	// returned: every later rule still runs, and any decisive result (deny,
+	// ask, or a non-advisory approve) wins over it. Only when the full slice
+	// produced nothing decisive does the advisory approval become the answer.
+	var advisory *hookproto.HookResult
 	for _, rule := range Rules {
 		if !rule.ToolPattern.MatchString(toolName) {
 			continue
 		}
-		if result := rule.Evaluate(ctx); result != nil {
-			result.RuleID = rule.ID
-			return *result
+		result := rule.Evaluate(ctx)
+		if result == nil {
+			continue
 		}
+		result.RuleID = rule.ID
+		if result.Advisory && result.Decision == hookproto.DecisionApprove {
+			if advisory == nil {
+				advisory = result
+			}
+			continue
+		}
+		return *result
+	}
+	if advisory != nil {
+		return *advisory
 	}
 	return hookproto.HookResult{Decision: hookproto.DecisionApprove}
 }
+
+// deferredApproveCommandPattern matches an invocation of the operator-only
+// approve CLI (R16). `deferred list` deliberately does not match.
+var deferredApproveCommandPattern = regexp.MustCompile(`(?i)\bharness(?:\.exe)?["']?\s+deferred\s+approve\b`)
