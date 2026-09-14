@@ -77,7 +77,9 @@ copy_runtime_helpers() {
     build-host-plugin-dist.sh \
     calculate-effort.sh \
     codex-companion.sh \
+    codex-review-session.sh \
     codex-review-app-server-proxy.mjs \
+    repair-loop-state.sh \
     codex-primary-environment-guard.sh \
     cursor-companion.sh \
     model-routing.sh \

@@ -260,7 +260,8 @@ def enter_non_claude_companion_review_loop(worker_result):
     # Do not use the Worker-only SendMessage/self_review loop for cursor/codex.
     latest_commit = worker_result.commit
     diff_text = git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")
-    verdict = codex_exec_review(diff_text) or reviewer_agent_review(diff_text)
+    target_fingerprint = sha256(canonical_json(worker_result.baseCommit, spec_digest, task.DoD, owned_scope))
+    reviewer_handle, verdict = start_reviewer_review(diff_text, target_fingerprint)
     review_count = 0
     MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3
     while verdict == "REQUEST_CHANGES" and review_count < MAX_REVIEWS:
@@ -280,7 +281,7 @@ def enter_non_claude_companion_review_loop(worker_result):
         worker_result.commit = latest_commit
         worker_result.summary = companion_output
         diff_text = git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")
-        verdict = codex_exec_review(diff_text) or reviewer_agent_review(diff_text)
+        verdict = continue_reviewer_review(reviewer_handle, diff_text, issues, validation_evidence)
         review_count++
     if verdict == "APPROVE":
         git cherry-pick --no-commit {worker_result.baseCommit}..{worker_result.commit}

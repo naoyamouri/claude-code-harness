@@ -102,6 +102,15 @@ Critical or major findings produce `REQUEST_CHANGES`.
 Minor or recommendation-only findings can still produce `APPROVE` when the
 acceptance bar is met.
 
+The initial reviewer is fresh and independent from the implementation context.
+After `REQUEST_CHANGES`, re-review resumes the same reviewer thread when the
+base, spec, DoD, and owned scope are unchanged. The re-review input includes the
+updated full diff, the disposition of each blocking finding, and current test
+evidence. A material target change or an unavailable reviewer starts a fresh
+reviewer and records that reason in `.claude/state/repair-loop/<task>.json`.
+Severity thresholds, read-only execution, cross-family review, and the bounded
+iteration limit do not change.
+
 ## PR And Release Boundary
 
 PR closeout belongs to `harness-work`, not `harness-review`.

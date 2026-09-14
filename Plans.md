@@ -415,3 +415,20 @@ Purpose: 追加依頼の公式 prompting guide を CCH の全 active prompt 面�
 
 **完了条件**: main、タグ、GitHub Release、4環境の配布物が同じリリースを示し、未解決の critical / major がない。
 **検証記録**: `.claude/state/release-20260906/`。ローカル確認と公開後の確認を別に記録する。
+
+## Phase 148: REQUEST_CHANGES 後の Reviewer 継続 (2026-09-14)
+
+**Purpose**: 初回レビューの独立性を保ったまま、修正後の確認を同じ Reviewer thread に返す。Claude Code と Codex の両 host で既出指摘の再説明・再発見を減らし、レビュー品質を落とさず反復コストを抑える。
+
+**Spec delta**: `spec.md` と `docs/spec/workflow-review-and-release.md` の Review Contract を同期する。初回レビューは実装者から独立した fresh context で開始する。`REQUEST_CHANGES` 後は、base/spec/DoD/scope が同一で Reviewer が継続可能なら同じ handle/session を再利用し、更新差分、各指摘の対応、最新検証証拠を渡す。対象契約が実質変更された場合、または Reviewer が終了・利用不能の場合だけ fresh Reviewer を作り、理由を記録する。既存の重大度、read-only、最大3回、cross-family review、承認境界は変更しない。
+
+**team_validation_mode**: single fresh reviewer。計画と最終差分を同じ Reviewer に混在させず、それぞれ独立した review run とする。実装差分への `REQUEST_CHANGES` が出た場合は、その実装 Reviewer を継続して再レビューする。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 148.1 | `[lane:gate]` `[tdd:required]` Claude/Codex の review loop と継続可能な Codex review transport を実装 | RED で現行 one-shot review と reviewer identity 非保持を捕捉。`codex-companion.sh` の配下に read-only な persistent review session の start/resume 経路を設け、`.claude/state/repair-loop/<task>.json` に transport/handle/target fingerprint/replacement reason を保存する。same target は同じ handle を resume、material target change と reviewer unavailable だけ fresh 化し理由を残す。shared skill/Codex variant、`spec.md`、`docs/spec/workflow-review-and-release.md`、schema/mirrorを同期し、更新差分・指摘対応・最新証拠を再レビュー入力に含める。fake provider の focused test で reuse / target-change / unavailable の3分岐がPASS | - | cc:done [RED→GREEN、read-only start/resume、3分岐state、Claude/Codex skillとmirror同期] |
+| 148.2 | `[lane:gate]` `[tdd:skip:validation-review]` 必須検証と独立レビュー | `tests/validate-plugin.sh`、`scripts/ci/check-consistency.sh`、mirror check、`git diff --check` が PASS。critical / major 0 の独立 `APPROVE`。provider 実走の有無を区別 | 148.1 | cc:wip [独立review R2 APPROVE、consistency/mirror/diff/focused PASS。validate-plugin 145 PASS・8環境依存FAIL、CI確認待ち。provider実走 not_observed] |
+
+**実行境界**: ローカルの仕様・skill・契約テスト・生成 mirror と通常PRまで。モデル設定、provider dispatch、既存 plugin cache、Phase 147 の release、main merge、tag、GitHub Releaseは含めない。
+
+**TDD RED evidence**: `bash tests/test-codex-review-session.sh` → `Unknown subcommand: review-session` / exit 1（実装前に実測）。

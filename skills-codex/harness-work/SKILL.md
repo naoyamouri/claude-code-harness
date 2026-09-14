@@ -513,7 +513,8 @@ for task in execution_order:
         diff_text = git("-C", worker_result.worktreePath, "show", worker_result.commit)
     else:
         diff_text = git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")
-    verdict = codex_exec_review(diff_text) or reviewer_agent_review(diff_text)
+    target_fingerprint = sha256(canonical_json(BASE_REF, spec_digest, task.DoD, owned_scope))
+    reviewer_handle, verdict = start_reviewer_review(diff_text, target_fingerprint)
     profile = jq(contract_path, ".review.reviewer_profile")
     review_input = "review-output.json"
     if profile == "runtime":
@@ -578,7 +579,7 @@ for task in execution_order:
             diff_text = git("-C", worker_result.worktreePath, "show", latest_commit)
         else:
             diff_text = git("-C", worker_result.worktreePath, "diff", "{worker_result.baseCommit}..HEAD")
-        verdict = codex_exec_review(diff_text) or reviewer_agent_review(diff_text)
+        verdict = continue_reviewer_review(reviewer_handle, diff_text, issues, validation_evidence)
         review_count++
 
     # B-6. Worker 終了
@@ -718,7 +719,7 @@ Parallel モードでは各 Worker が step 10（外部レビュー受付）と�
 ### レビュー実行の優先順位
 
 ```
-1. Codex exec（優先）
+1. persistent Codex review session（優先。初回 handle を保持）
    ↓ codex コマンドが存在しない or タイムアウト（120s）
 2. 内部 Reviewer agent（フォールバック）
 ```
@@ -741,7 +742,8 @@ Parallel モードでは各 Worker が step 10（外部レビュー受付）と�
 ### Codex exec レビュー（公式プラグイン経由）
 
 タスク開始時の HEAD を `BASE_REF` として保持し、その ref との差分をレビュー対象にする。
-公式プラグイン `codex-plugin-cc` の companion review を使用する。
+`codex-companion.sh review-session` を使用する。`TARGET_FINGERPRINT` は
+base/spec/DoD/scope の正規化値から作り、指摘対応のコード変更だけでは変えない。
 
 ```bash
 # タスク開始時に base ref を記録（Step 2 の cc:WIP 更新前に実行）
@@ -749,10 +751,19 @@ BASE_REF=$(git rev-parse HEAD)
 
 # ... 実装完了後 ...
 
-# 公式プラグインの構造化レビューを実行
-bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" review --base "${BASE_REF}"
+# 初回は persistent review を開始し、以後は同じ fingerprint で同じ thread を resume
+bash "${HARNESS_PLUGIN_ROOT}/scripts/codex-companion.sh" review-session \
+  --project-root "${PROJECT_ROOT}" --task-id "${TASK_ID}" \
+  --target-fingerprint "${TARGET_FINGERPRINT}" --base-ref "${BASE_REF}" \
+  --output "${REVIEW_OUTPUT}" --prompt "${REVIEW_PROMPT}"
 REVIEW_EXIT=$?
 ```
+
+`REVIEW_PROMPT` は初回に原依頼・spec・DoD・scope・全差分・検証証拠を含める。
+再レビューでは更新後の全差分、各 blocking finding の対応、最新検証証拠を含める。
+same target は保存済み handle を再利用する。material target change または Reviewer
+利用不能時だけ fresh にし、理由と置換履歴を
+`.claude/state/repair-loop/<task>.json` に残す。
 
 **verdict マッピング**（公式プラグイン → Harness 形式）:
 
@@ -785,6 +796,10 @@ prompt: "対象変更を read-only でレビューしてください。原依頼
 ```
 
 Reviewer agent は Read-only（Write/Edit/Bash 無効）で安全にレビューを実行する。
+返された handle は `repair-loop-state.sh reviewer-bind` で保持する。
+`REQUEST_CHANGES` 後は Codex の `followup_task` で同じ target に更新差分・指摘対応・
+最新証拠を渡す。handle が利用不能な場合だけ fresh Reviewer を作り、
+`reviewer-unavailable` を記録する。
 
 ### 修正ループ（REQUEST_CHANGES 時）
 
@@ -797,7 +812,7 @@ MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3
 while verdict == "REQUEST_CHANGES" and review_count < MAX_REVIEWS:
     1. レビュー指摘を解析（critical / major のみ対象）
     2. 各指摘に対して修正を実装
-    3. 再度レビューを実行（同じ判定基準・同じ優先順位）
+    3. 初回に保持した Reviewer handle へ、更新後の全差分・指摘ごとの対応・最新検証証拠を送り再レビューを実行
     review_count++
 
 if review_count >= MAX_REVIEWS and verdict != "APPROVE":
@@ -813,7 +828,7 @@ Breezing モードでは **Lead** がレビューループを実行する（上�
 1. Worker が worktree 内で実装・commit → Lead に結果返却
 2. Lead が Codex exec でレビュー（優先）/ Reviewer agent（フォールバック）
 3. REQUEST_CHANGES → Lead が `send_input` で Worker に修正指示し、`wait_agent` で再応答を待つ → Worker が amend
-4. 修正後、再レビュー（`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3` 回まで）
+4. 修正後、同じ Reviewer handle で再レビュー（`MAX_REVIEWS = read_contract(contract_path, ".review.max_iterations") or 3` 回まで）。base/spec/DoD/scope の実質変更または Reviewer 利用不能時だけ fresh 化し、理由を repair-loop state に残す
 5. APPROVE → Lead が trunk（デフォルトブランチ）に cherry-pick → Plans.md を `cc:完了 [{hash}]` に更新
 
 ## Completion Report Output Contract

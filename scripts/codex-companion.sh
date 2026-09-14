@@ -8,12 +8,13 @@
 # Usage:
 #   bash scripts/codex-companion.sh task --write "Fix the bug"
 #   bash scripts/codex-companion.sh review --base HEAD~3
+#   bash scripts/codex-companion.sh review-session --project-root . --task-id 1.1 --target-fingerprint HASH --base-ref HEAD --output /tmp/review.json --prompt "Review"
 #   bash scripts/codex-companion.sh setup --json
 #   bash scripts/codex-companion.sh status
 #   bash scripts/codex-companion.sh result <job-id>
 #   bash scripts/codex-companion.sh cancel <job-id>
 #
-# Subcommands: task, review, adversarial-review, setup, status, result, cancel
+# Subcommands: task, review, review-session, adversarial-review, setup, status, result, cancel
 #
 # Effort 伝播:
 #   task は明示 CLI/config > CODEX_EFFORT > role routing の順で解決する。
@@ -1059,6 +1060,10 @@ review_app_server_exit_cleanup() {
 }
 
 SUBCOMMAND="${1:-}"
+if [ "${SUBCOMMAND}" = review-session ]; then
+  shift
+  exec bash "${SCRIPT_DIR}/codex-review-session.sh" "$@"
+fi
 if [ "${SUBCOMMAND}" = task ] || [ "${SUBCOMMAND}" = review ] || [ "${SUBCOMMAND}" = adversarial-review ]; then
   if ! normalize_codex_overrides "$@"; then exit 2; fi
   set -- "${CODEX_NORMALIZED_ARGS[@]}"

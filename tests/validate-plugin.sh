@@ -489,6 +489,12 @@ else
     fail_test "repair-loop-state の契約テストに失敗 — 'bash tests/test-repair-loop-state.sh' で詳細確認"
 fi
 
+if bash "$PLUGIN_ROOT/tests/test-codex-review-session.sh" >/dev/null 2>&1; then
+    pass_test "REQUEST_CHANGES 後の Reviewer thread 継続と fresh fallback が動作します (test-codex-review-session.sh)"
+else
+    fail_test "Reviewer thread 継続の契約テストに失敗 — 'bash tests/test-codex-review-session.sh' で詳細確認"
+fi
+
 if bash "$PLUGIN_ROOT/tests/test-release-version-sync.sh" >/dev/null 2>&1; then
     pass_test "release version sync checker の contract fixture が通ります (test-release-version-sync.sh)"
 else

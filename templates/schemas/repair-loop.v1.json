@@ -40,6 +40,15 @@
       "type": "string",
       "format": "date-time"
     },
+    "reviewer": {
+      "$ref": "#/definitions/reviewer"
+    },
+    "reviewer_replacements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/reviewerIdentity"
+      }
+    },
     "iterations": {
       "type": "array",
       "items": {
@@ -81,6 +90,29 @@
             "format": "date-time"
           }
         }
+      }
+    }
+  },
+  "definitions": {
+    "reviewer": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/definitions/reviewerIdentity" }
+      ]
+    },
+    "reviewerIdentity": {
+      "type": "object",
+      "required": ["transport", "handle", "target_fingerprint", "fresh_reason", "bound_at"],
+      "additionalProperties": false,
+      "properties": {
+        "transport": { "type": "string", "minLength": 1 },
+        "handle": { "type": "string", "minLength": 1 },
+        "target_fingerprint": { "type": "string", "minLength": 1 },
+        "fresh_reason": {
+          "type": "string",
+          "enum": ["initial", "material-target-change", "reviewer-unavailable"]
+        },
+        "bound_at": { "type": "string", "format": "date-time" }
       }
     }
   }

@@ -116,7 +116,10 @@ enabled):
    is a fixed taxonomy: security / data-loss / correctness findings always block
    and are never eligible for "stop nitpicking, move on"; only style/preference
    may be suppressed. Cross-family review (Claude-Lead reviewed by Codex and vice
-   versa, plus fresh-context) is required; when the cross-family leg is
+   versa) starts in fresh context and is required; after `REQUEST_CHANGES`, the
+   same reviewer thread verifies the repair while base/spec/DoD/scope are unchanged.
+   A material target change or unavailable reviewer starts a fresh thread and records
+   the reason. When the cross-family leg is
    unavailable it is a named reduced-autonomy state, not a silent same-family
    fallback.
 6. **Constitution and self-modification protection.** Rule definitions
@@ -231,8 +234,9 @@ take precedence over general workflow defaults.
 
 Delegation uses independently verifiable outcomes, explicit ownership, and
 the configured concurrency limits. The coordinator continues useful work and
-reuses a worker for related follow-up; independent review retains a fresh
-context and its bounded verdict contract. Required tests and evidence remain
+reuses a worker for related follow-up; independent review starts with fresh
+context, then retains that reviewer thread for repair verification under the
+same target contract and bounded verdict contract. Required tests and evidence remain
 mandatory, with extra testing justified by new changes or unresolved concerns.
 Reports distinguish intended, performed, and verified actions and request
 decision reasons with checkable evidence, not private reasoning transcripts.

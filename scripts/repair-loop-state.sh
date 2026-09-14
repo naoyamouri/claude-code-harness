@@ -8,6 +8,7 @@
 #   repair-loop-state.sh init   <project-root> <task-id> <max-iterations>
 #   repair-loop-state.sh record <project-root> <task-id> <APPROVE|REQUEST_CHANGES> [findings-json]
 #   repair-loop-state.sh check  <project-root> <task-id>
+#   repair-loop-state.sh reviewer-bind <project-root> <task-id> <transport> <handle> <target-fingerprint> <fresh-reason>
 
 set -euo pipefail
 
@@ -20,6 +21,7 @@ Usage:
   repair-loop-state.sh init   <project-root> <task-id> <max-iterations>
   repair-loop-state.sh record <project-root> <task-id> <APPROVE|REQUEST_CHANGES> [findings-json]
   repair-loop-state.sh check  <project-root> <task-id>
+  repair-loop-state.sh reviewer-bind <project-root> <task-id> <transport> <handle> <target-fingerprint> <initial|material-target-change|reviewer-unavailable>
 
 findings-json: a JSON array of {severity, issue[, file]} objects.
 Defaults to "[]" when omitted. Pass "-" to read the JSON array from stdin.
@@ -197,10 +199,78 @@ cmd_init() {
       status: "open",
       created_at: $now,
       updated_at: $now,
+      reviewer: null,
+      reviewer_replacements: [],
       iterations: []
     }' > "${tmp}"
   atomic_write "${state_path}" "${tmp}"
   rm -f "${tmp}"
+  echo "${state_path}"
+}
+
+cmd_reviewer_bind() {
+  require_jq
+  local project_root="${1:-}"
+  local task="${2:-}"
+  local transport="${3:-}"
+  local handle="${4:-}"
+  local target_fingerprint="${5:-}"
+  local fresh_reason="${6:-}"
+  if [ -z "${project_root}" ] || [ ! -d "${project_root}" ]; then
+    echo "reviewer-bind: project root not found: ${project_root:-<missing>}" >&2
+    exit 1
+  fi
+  validate_task_id "${task}"
+  [ -n "${transport}" ] && [ -n "${handle}" ] && [ -n "${target_fingerprint}" ] || {
+    echo "reviewer-bind: transport, handle, and target-fingerprint are required" >&2
+    exit 1
+  }
+  case "${fresh_reason}" in
+    initial|material-target-change|reviewer-unavailable) ;;
+    *)
+      echo "reviewer-bind: invalid fresh reason: ${fresh_reason:-<missing>}" >&2
+      exit 1
+      ;;
+  esac
+
+  local state_dir state_path now tmp
+  state_dir="$(state_dir_for "${project_root}")"
+  state_path="$(state_path_for "${project_root}" "${task}")"
+  assert_contained "${state_dir}" "${state_path}"
+  [ -f "${state_path}" ] || {
+    echo "reviewer-bind: no state file for task ${task}; run 'init' first" >&2
+    exit 1
+  }
+  if ! acquire_lock "${state_path}"; then
+    echo "reviewer-bind: could not acquire lock for ${state_path}" >&2
+    exit "${USAGE_EXIT}"
+  fi
+
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  tmp="$(mktemp)"
+  jq \
+    --arg transport "${transport}" \
+    --arg handle "${handle}" \
+    --arg target_fingerprint "${target_fingerprint}" \
+    --arg fresh_reason "${fresh_reason}" \
+    --arg now "${now}" \
+    '
+      .reviewer_replacements = (.reviewer_replacements // [])
+      | if (.reviewer // null) != null then
+          .reviewer_replacements += [.reviewer]
+        else . end
+      | .reviewer = {
+          transport: $transport,
+          handle: $handle,
+          target_fingerprint: $target_fingerprint,
+          fresh_reason: $fresh_reason,
+          bound_at: $now
+        }
+      | .updated_at = $now
+    ' "${state_path}" > "${tmp}"
+  atomic_write "${state_path}" "${tmp}"
+  rm -f "${tmp}"
+  release_lock
   echo "${state_path}"
 }
 
@@ -330,6 +400,10 @@ case "${1:-}" in
   check)
     shift
     cmd_check "$@"
+    ;;
+  reviewer-bind)
+    shift
+    cmd_reviewer_bind "$@"
     ;;
   -h|--help|help|"")
     usage
