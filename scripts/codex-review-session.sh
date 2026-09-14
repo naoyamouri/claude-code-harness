@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_SCRIPT="${SCRIPT_DIR}/repair-loop-state.sh"
 MODEL_ROUTER="${SCRIPT_DIR}/model-routing.sh"
+OUTPUT_SCHEMA="${SCRIPT_DIR}/lib/review-output.schema.json"
 
 usage() {
   echo "Usage: codex-review-session.sh --project-root DIR --task-id ID --target-fingerprint HASH --base-ref REF --output FILE --prompt TEXT" >&2
@@ -36,6 +37,7 @@ for value in PROJECT_ROOT TASK_ID TARGET_FINGERPRINT BASE_REF OUTPUT PROMPT; do
 done
 command -v codex >/dev/null 2>&1 || { echo "codex-review-session: codex is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "codex-review-session: jq is required" >&2; exit 2; }
+[ -f "${OUTPUT_SCHEMA}" ] || { echo "codex-review-session: review output schema not found: ${OUTPUT_SCHEMA}" >&2; exit 2; }
 [ -d "${PROJECT_ROOT}" ] || { echo "codex-review-session: project root not found: ${PROJECT_ROOT}" >&2; exit 1; }
 [[ "${TASK_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "codex-review-session: invalid task id: ${TASK_ID}" >&2; exit 2; }
 git -C "${PROJECT_ROOT}" rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1 || { echo "codex-review-session: invalid base ref: ${BASE_REF}" >&2; exit 2; }
@@ -54,13 +56,41 @@ fi
 
 run_start() {
   local log_file="$1"
-  (cd "${PROJECT_ROOT}" && codex exec --sandbox read-only review --base "${BASE_REF}" "${MODEL_ARGS[@]}" --json -o "${OUTPUT}" "${PROMPT}") > "${log_file}"
+  : > "${OUTPUT}"
+  (cd "${PROJECT_ROOT}" && codex exec --sandbox read-only review --base "${BASE_REF}" "${MODEL_ARGS[@]}" --output-schema "${OUTPUT_SCHEMA}" --json -o "${OUTPUT}" "${PROMPT}") > "${log_file}" || return $?
+  validate_output
 }
 
 run_resume() {
   local handle="$1"
   local log_file="$2"
-  (cd "${PROJECT_ROOT}" && codex exec resume -c 'sandbox_mode="read-only"' "${MODEL_ARGS[@]}" --json -o "${OUTPUT}" "${handle}" "${PROMPT}") > "${log_file}"
+  : > "${OUTPUT}"
+  (cd "${PROJECT_ROOT}" && codex exec resume -c 'sandbox_mode="read-only"' "${MODEL_ARGS[@]}" --output-schema "${OUTPUT_SCHEMA}" --json -o "${OUTPUT}" "${handle}" "${PROMPT}") > "${log_file}" || return $?
+  validate_output
+}
+
+validate_output() {
+  [ -s "${OUTPUT}" ] && jq -e '
+    type == "object"
+    and (.verdict | IN("approve", "needs-attention"))
+    and (.summary | type == "string" and length > 0)
+    and (.findings | type == "array")
+    and all(.findings[];
+      type == "object"
+      and (.severity | IN("critical", "high", "medium", "low"))
+      and (.title | type == "string" and length > 0)
+      and (.body | type == "string" and length > 0)
+      and (.file | type == "string" and length > 0)
+      and (.line_start | type == "number" and . >= 1)
+      and (.line_end | type == "number" and . >= 1)
+      and (.confidence | type == "number" and . >= 0 and . <= 1)
+      and (.recommendation | type == "string"))
+    and (.next_steps | type == "array")
+    and all(.next_steps[]; type == "string" and length > 0)
+  ' "${OUTPUT}" >/dev/null 2>&1 || {
+    echo "codex-review-session: review output is missing or invalid" >&2
+    return 1
+  }
 }
 
 extract_handle() {

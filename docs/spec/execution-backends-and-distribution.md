@@ -197,7 +197,7 @@ The authoritative record is a companion-written ledger. `codex-companion.sh` and
 non-sensitive fields: timestamp, backend, subcommand, write flag, exit code,
 duration, session id, and a `counts` flag. The ledger must never contain prompt
 text, file contents, or secrets. Only delegation subcommands (`task`, `review`,
-`adversarial-review`) set `counts: true`; status/setup/result/cancel calls are
+`review-session`, `adversarial-review`) set `counts: true`; status/setup/result/cancel calls are
 recorded with `counts: false` so polling does not inflate the score.
 
 Claude-side work is not companion-driven, so the scorecard derives Claude

@@ -28,7 +28,7 @@
     },
     "subcommand": {
       "type": "string",
-      "description": "The companion subcommand (task, review, adversarial-review, setup, status, result, cancel)."
+      "description": "The companion subcommand (task, review, review-session, adversarial-review, setup, status, result, cancel)."
     },
     "write": {
       "type": "boolean",
@@ -48,7 +48,7 @@
     },
     "counts": {
       "type": "boolean",
-      "description": "True only for real delegations (task / review / adversarial-review). False for status / setup / result / cancel so polling does not inflate the score."
+      "description": "True only for real delegations (task / review / review-session / adversarial-review). False for status / setup / result / cancel so polling does not inflate the score."
     }
   }
 }

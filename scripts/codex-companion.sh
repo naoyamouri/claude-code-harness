@@ -1062,7 +1062,14 @@ review_app_server_exit_cleanup() {
 SUBCOMMAND="${1:-}"
 if [ "${SUBCOMMAND}" = review-session ]; then
   shift
-  exec bash "${SCRIPT_DIR}/codex-review-session.sh" "$@"
+  set +e
+  bash "${SCRIPT_DIR}/codex-review-session.sh" "$@"
+  review_session_rc=$?
+  set -e
+  if [ "${review_session_rc}" -eq 0 ]; then
+    emit_codex_ledger_once "review-session"
+  fi
+  exit "${review_session_rc}"
 fi
 if [ "${SUBCOMMAND}" = task ] || [ "${SUBCOMMAND}" = review ] || [ "${SUBCOMMAND}" = adversarial-review ]; then
   if ! normalize_codex_overrides "$@"; then exit 2; fi

@@ -17,7 +17,8 @@ Change history for claude-code-harness.
 
 - Resume the same read-only reviewer thread after `REQUEST_CHANGES` when the
   review target is unchanged. Start a fresh reviewer only for a material target
-  change or unavailable session, and retain the replacement reason in repair-loop state.
+  change or unavailable session, retain the replacement reason in repair-loop
+  state, and reject invalid structured review output before recording a verdict.
 - Integrate upstream v5.15.0 while preserving fork-specific workflow,
   distribution-freshness, and review-gate behavior. Historical fork task IDs
   use the `F139`-`F147` namespace to avoid colliding with upstream phases.

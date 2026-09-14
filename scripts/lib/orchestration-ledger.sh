@@ -15,7 +15,7 @@
 #   - exit_code / duration_ms are nullable: codex-companion exec()s into the
 #     codex process and cannot post-process, so it records them as null; cursor-
 #     companion runs cursor-agent as a child and records real values.
-#   - counts is true only for real delegations (task / review / adversarial-review);
+#   - counts is true only for real delegations (task / review / review-session / adversarial-review);
 #     status / setup / result / cancel are recorded with counts=false so polling
 #     does not inflate the score.
 #   - Fail-open: callers MUST invoke as `orch_emit_ledger ... || true`. Invoking
@@ -74,7 +74,7 @@ __orch_session_id() {
 # orch_counts_for <subcommand> -> "true" for real delegations, else "false".
 orch_counts_for() {
   case "${1:-}" in
-    task | review | adversarial-review) printf 'true' ;;
+    task | review | review-session | adversarial-review) printf 'true' ;;
     *) printf 'false' ;;
   esac
 }

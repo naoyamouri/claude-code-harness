@@ -60,6 +60,10 @@ handle in `.claude/state/repair-loop/<task>.json`. A later call with the same
 target fingerprint resumes that handle. A changed fingerprint starts fresh with
 `material-target-change`; a failed resume starts fresh with
 `reviewer-unavailable`. Both replacement reasons remain in the same state file.
+Start and resume both use the bundled official review-output schema. Missing,
+empty, malformed, or shape-invalid output fails before verdict normalization or
+repair-loop recording. Each successful call emits one prompt-free, countable
+`review-session` orchestration-ledger entry.
 
 Verdict mapping (official plugin → Harness):
 

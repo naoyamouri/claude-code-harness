@@ -6,7 +6,7 @@
 #   - shared lib scripts/lib/orchestration-ledger.sh emits one fixed-field JSONL line
 #   - the 8-field contract (ts, backend, subcommand, write, exit_code, duration_ms,
 #     session_id, counts) and nullable exit_code/duration_ms
-#   - counts flag derives from subcommand (task/review/adversarial-review -> true)
+#   - counts flag derives from subcommand (task/review/review-session/adversarial-review -> true)
 #   - no prompt/secret leaks into the ledger (orch_emit_ledger has no prompt param)
 #   - fail-open: a ledger write failure never changes the caller's exit code
 #   - both companion scripts source the lib and call orch_emit_ledger
@@ -49,6 +49,7 @@ fi
 # ---------------------------------------------------------------------------
 [ "$(orch_counts_for task)" = "true" ] && ok "counts task=true" || ng "counts task"
 [ "$(orch_counts_for review)" = "true" ] && ok "counts review=true" || ng "counts review"
+[ "$(orch_counts_for review-session)" = "true" ] && ok "counts review-session=true" || ng "counts review-session"
 [ "$(orch_counts_for adversarial-review)" = "true" ] && ok "counts adversarial-review=true" || ng "counts adversarial-review"
 [ "$(orch_counts_for status)" = "false" ] && ok "counts status=false" || ng "counts status"
 [ "$(orch_counts_for setup)" = "false" ] && ok "counts setup=false" || ng "counts setup"

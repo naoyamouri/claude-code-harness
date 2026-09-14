@@ -93,6 +93,7 @@ for dist in "$CLAUDE_OUT" "$CODEX_OUT"; do
     scripts/run-advisor-consultation.sh \
     scripts/build-weak-supervision-cues.sh \
     scripts/lib/advisor-response.schema.json \
+    scripts/lib/review-output.schema.json \
     scripts/codex-loop.sh \
     scripts/generate-sprint-contract.js \
     scripts/lib/run-harness-subcommand.js \
