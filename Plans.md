@@ -39,12 +39,13 @@ PM ↔ Impl 運用で使用する標準マーカー:
 |---------|------|-----------|
 | `pm:requested` / `pm:依頼中` | PM がタスクを起票し、Impl へ依頼中 | PM |
 | `cc:todo` / `cc:TODO` | Impl の未着手タスク | Impl |
-| `cc:wip` / `cc:WIP` | Impl（Claude Code）が着手中 | Impl |
-| `cc:done` / `cc:完了` | Impl が作業完了し、PM の確認待ち | Impl |
+| `cc:wip` / `cc:WIP` | Impl（Claude Code）が実作業中 | Impl |
+| `cc:blocked` | CI・Preview・人間確認・権限などの外部待ち。再開条件を DoD に残す | Impl |
+| `cc:done` / `cc:完了` | GitHub merge と harness-sync 後、marker PR で完了を記録 | Impl |
 | `pm:approved` / `pm:確認済` | PM が最終確認を完了 | PM |
 | `cc:withdrawn` | Impl が判断で取り下げたタスク（superseded / 別タスクで吸収）。breezing は cc:withdrawn を pickup しない | Impl |
 
-**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:done → pm:approved`。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
+**状態遷移**: 新規・更新時の正規出力は `pm:requested → cc:todo → cc:wip → cc:blocked（待機時のみ）→ cc:done → pm:approved`。`cc:done` は worker commit や PR 作成だけでは付けず、current review receipt・required CI・GitHub merge・harness-sync の後に C lane marker PR が記録する。既存 `pm:依頼中 → cc:TODO → cc:WIP → cc:完了 → pm:確認済` も read-compatible。`cc:withdrawn` は terminal state（再開しない）。
 
 **後方互換**: `cursor:依頼中` / `cursor:確認済` は `pm:依頼中` / `pm:確認済` の同義として扱う（Cursor PM 運用時の表記）。
 
@@ -158,6 +159,101 @@ Phase 119-124 (2026-07-19 〜 2026-07-25、全 task `cc:done`) は
 | 138.6 | `[lane:gate]` 検証の検証: `scripts/ci/check-feedback-rule-wiring.sh` + 実効性契約テスト (warn / ask / deny-clamp の 3 系を実バイナリ probe で実測、UserPromptSubmit 注入の budget 上限テスト)。validate-plugin.sh へ配線 | (a) 配線前 RED / 配線後 GREEN の実測記録, (b) `bash tests/validate-plugin.sh` PASS, (c) `bash scripts/ci/check-consistency.sh` PASS | 138.1-138.5 | cc:todo |
 
 **共有ファイル lane (Invariant 1)**: `tests/validate-plugin.sh` の owner は 134.8 / 135.5 (この順で直列)。`Plans.md` / `CHANGELOG.md` は worker 編集禁止 (Lead が統合時に編集)。hooks.json 2 ファイルの owner は 135.2 → 135.3 (直列)。`skills/harness-accept/` は 134.4 → 134.6 → 137.2 の順で直列。prose lane (skills/agents md) は 134.3 → 134.7 → 136.3 → 137.1 → 137.3 で直列可 (異なるファイルなら並列も可)。生成物 (binary / mirror) は統合後に trunk で 1 回再生成 (Invariant 3)。
+
+## Fork Phase F139: Chachamaru upstream の reviewable 同期 (2026-08-20 完了)
+
+> Fork 固有の F139-F147 は、upstream 側で同じ Phase 番号が使われたため、同期時に `F` 名前空間へ移した。元の commit / PR 番号は維持する。
+
+**Purpose**: fork の SessionStart 更新は `origin` だけを取得するため、Chachamaru 本家の変更を検知・レビュー可能な形で fork に取り込む。未検証の本家変更を自動マージせず、同期 PR と既存 CI / review gate を通す。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F139.1 | `[lane:gate]` 本家 `main` を日次取得し、未取込時だけ同期用 branch と PR を作る GitHub Actions workflow を追加する。PR 本文に CI・`harness-review`・fork 固有確認の必須 gate を明記し、既存・クローズ済み PR は再作成しない。 | 同一HEAD時は no-op、差分時は `chore/sync-chachamaru-upstream-<sha>` から main 宛のPRを作成する。merge conflictは main を変更せず workflow を失敗として可視化する。workflow 静的契約テスト・`actionlint`・plugin validation が通る。 | - | cc:done [PR #3 / 2fb36f9] |
+
+## Fork Phase F140: 同期PRのCI自走 (2026-08-20 完了)
+
+**Purpose**: `GITHUB_TOKEN` が作るPRの `pull_request` CIは承認待ちになる。追加secretを持たず、同期後に同一branchへ `workflow_dispatch` で primary CI を起動し、レビュー可能な実行記録を必ず残す。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F140.1 | `[lane:gate]` validate-plugin workflow に `workflow_dispatch` を許可し、同期workflowがPR作成後に対象branchのprimary CIを起動する。 | GITHUB_TOKENだけで同期PRのbranchに actionlint / validate / Go test が実行される。同期workflowは `actions: write` 以外の権限昇格を行わない。静的契約テスト・plugin validation・actionlintが通る。 | F139.1 | cc:done [PR #4 / 23c54fb] |
+
+## Fork Phase F141: 同期PRの全CI自走 (2026-08-20 完了)
+
+**Purpose**: primary CI だけでは smoke install と CodeQL が承認待ちのまま残る。同期PRが通常PRと同じ全CI証跡を持ち、手動承認なしでレビュー可能になるよう補完する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F141.1 | `[lane:gate]` smoke-install と CodeQL に `workflow_dispatch` を許可し、同期workflowが validate / smoke / CodeQL を同一branchへ起動する。 | GITHUB_TOKENだけで同期PRの全CI（actionlint・validate・Go test・3OS smoke・CodeQL）が起動する。workflow以外の権限は増やさず、3 workflowのdispatch許可と起動を契約テストで検査する。 | F140.1 | cc:done [PR #5 / 9d80774c] |
+
+## Fork Phase F142: Cross-agent PR review gate (2026-08-24)
+
+**Purpose**: Claude Code と Codex のPR後レビューを同じ receipt/merge guard に接続し、origin の live PR base/head と一致しない未レビュー変更を agent merge しない。Spec delta: `docs/spec/workflow-review-and-release.md` の PR boundary。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F142.1 | `[lane:gate] [tdd:required]` PR review receipt と merge helper を実装し、Claude/Codex adapter と mirror に配る。 | RED: remote PR base/head不一致で既存gateが通る、およびstring `observations`で正規化が停止する（2026-08-24: `FAIL: merge must reject an unreviewed remote PR base`、`Unknown option: --pr-base`、`Cannot index string with string "severity"`、`.claude/state/tdd-red-log/142.1.jsonl`）。GREEN: receipt = local HEAD = live `headRefOid`、receiptとreview artifactの`pr_base` / `pr_base_ref` = live `baseRefOid` / `baseRefName`、文字列/構造化`observations`を同じseverity規則で正規化、originを明示した`--match-head-commit` merge、required status checksの`strict: true`なしはmerge拒否、PRなし/request changes/stale local・remote base/head/retargetのfixture、既存`[features]`へ`multi_agent`を統合する設定回帰テスト、plugin validationが通る。 | - | cc:done [PR #6/#7 / 6762a4b] |
+| F142.2 | `[lane:fast] [tdd:required]` PR後レビューの人向け表示を、機械用`review-result.v1`と分けて保持・配布する。 | reviewer は結論、必須対応（重要度・理由・対応）、任意の改善提案を Markdown で返し、同じ内容の`review-result.v1`を併記する。PR adapter は本文を`.claude/state/pr-review-report.md`、JSONを`.claude/state/pr-review-output.json`に別保存して、JSONだけで人向け本文を復元しない。共有/Codex/OpenCode mirror と仕様が一致し、契約テストが GREEN。 | F142.1 | cc:done [PR #8 / 51c8302] |
+| F142.3 | `[lane:gate] [tdd:required]` GitHub Free private repoでも、current review receiptを確認したagent mergeを実行する。 | GitHub branch-protection API が Free private の既知403を返す時だけ、live PR base/headをmerge直前に再照合して`--match-head-commit`でmergeする。`strict:false`、認証・通信など他のAPIエラー、receipt/base/head不一致は従来どおり拒否し、GitHub上で`MERGED`またはmerge queueの`QUEUED`を確認する。原子的なbase保護はGitHub有料機能が利用可能な時だけであることを仕様に明記し、fixtureテストが GREEN。 | F142.1 | cc:done [PR #8 / 51c8302] |
+
+---
+
+## Fork Phase F143: PR review rejection invalidation (2026-08-25)
+
+**Purpose**: 後続の `REQUEST_CHANGES` が同一 PR HEAD の古い `APPROVE` receipt を残さず、formal review の最新 verdict だけが agent merge を許可するようにする。Phase 142 の review gate を補完する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F143.1 | `[lane:gate] [tdd:required]` `REQUEST_CHANGES` を受けた PR review gate が current receipt を無効化し、merge を拒否するようにする。 | RED: 同一 HEAD に APPROVE receipt を作った後に REQUEST_CHANGES を record しても `verify` が通る。GREEN: REQUEST_CHANGES の record 後は receipt が無く、`verify` / `merge --dry-run` が失敗する。PRなし、artifact/provenance/report digest の照合は既存どおり fail closed。 | F142.1, F142.2 | cc:完了 [5ad182b / PR #9] |
+
+---
+
+## Fork Phase F144: Workflow SSOT consolidation (2026-08-25)
+
+**Purpose**: lane / marker / PR closeout の契約を 3 host と配布物で一本化する。worker は topic branch の PR へ統合し、default branch への取り込みは review receipt・CI・GitHub merge の後だけにする。待機を `cc:done` に見せず `cc:blocked` として表現する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F144.1 | `[lane:gate] [tdd:required]` source Harness の work / breezing / cursor-do / loop / sync / plan を PR-first と `cc:blocked` 契約へ統合する。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。GREEN: worker は topic branch/PR だけを渡し、merge 後に harness-sync と marker PR を行う。`cc:done` は merge receipt 後だけ。mirror check と focused contract test が PASS。 | - | cc:done [33ac087] |
+| F144.2 | `[lane:gate] [tdd:required]` Codex user install に review gate / result writer / PR closeout helper を配布し、stale helper を検出できるようにする。 | RED: `docs/evidence/phase-144-tdd-red.md` の immutable pre-change probe。installer と generated Codex package が 3 helper を同梱し、temp CODEX_HOME への user install で executable と current workflow marker を検証する。既存 package test が PASS。 | F144.1 | cc:done [33ac087] |
+| F144.3 | `[lane:fast]` workflow/review/release spec を PR-first 契約と marker semantics に合わせ、Plans の canonical marker table を英語 writer family + `cc:blocked` に整える。 | `docs/spec/workflow-review-and-release.md` と Plans marker contract が同じ遷移を示し、legacy read compatibility を維持する。 | F144.1 | cc:done [33ac087] |
+| F144.4 | `[lane:gate]` mirror/distribution と plugin validation を統合検証する。 | `sync-skill-mirrors --check`、workflow contract test、`test-codex-package.sh`、`tests/validate-plugin.sh`、consistency check が PASS。 | F144.1, F144.2, F144.3 | cc:done [33ac087] |
+
+---
+
+## Fork Phase F145: Active distribution freshness + runtime helper closure (2026-08-26 完了)
+
+**Purpose**: release package → installed cache sync → active-install diagnosis の閉路を
+最小の既存経路でつなぎ、旧 helper の配布漏れと履歴 cache の誤警告を防ぐ。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F145.1 | `[lane:gate] [tdd:required]` plugin cache sync の explicit helper closure に PR review gate / result writer / closeout を追加する | stale/absent fixture から cache と marketplace copy の3 helperが source と byte 一致かつ executable に復元される。全 `scripts/` copy や新規 registry は導入しない | - | cc:done [PR #16 / 6dcea00] |
+| F145.2 | `[lane:gate] [tdd:required]` migration doctor を active/current・active/stale・historical-only・registry not_observed に分類する | `installed_plugins.json` を read-only で permissive に読み、active stale だけが exact update command を示す。history-only は informational、更新/削除は一切しない | F145.1 | cc:done [PR #16 / 6dcea00] |
+| F145.3 | `[lane:gate]` 既存 validation 経路に focused regression を接続する | `tests/test-sync-plugin-cache.sh`、Go migration report tests、`tests/validate-plugin.sh` と既存 mirror/package checks が PASS。Codex installer の新しい `--check` は必要性が出た時の follow-up に留める | F145.1, F145.2 | cc:done [PR #16 / 6dcea00] |
+
+**Non-goals**: plugin の自動更新、historical cache の自動削除、runtime helper の
+全 scripts copy、配布用の新しい universal registry は導入しない。
+
+---
+
+## Fork Phase F146: Free private merge の手動コメント gate を廃止する (2026-08-28)
+
+**Purpose**: GitHub Free private repository の既知403フォールバックで、既に機械検証済みのPRに対する `harness merge <sha>` コメントを不要にする。review receipt・live PR base/head 再照合・head pin・非Draft/CLEAN・全CI成功は維持する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F146.1 | `[lane:gate] [tdd:required]` private Free merge fallback から owner の承認コメント照会だけを除去する。 | RED: コメントAPIが利用不能でも、current receipt・live base/head・非Draft/CLEAN・全CI SUCCESS のPRは `merge --dry-run` が成功する。GREEN: 上記以外は既存どおり拒否し、focused gate test と plugin validation が通る。 | - | cc:done [4661fb2] |
+
+---
+
+## Fork Phase F147: Codex 配布キャッシュの freshness (2026-08-28)
+
+**Purpose**: `sync-plugin-cache.sh` が runtime helper と Claude skill だけを同期し、Codex が読む `codex/.codex/skills/` を古いまま残すドリフトを防ぐ。user-level Codex install の自動更新は行わず、既存の明示 setup 経路を維持する。
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| F147.1 | `[lane:gate] [tdd:required]` plugin cache sync に Codex 配布ディレクトリを含める。 | RED: stale/absent fixture で cache と marketplace copy の `codex/.codex/skills/harness-work/SKILL.md` が source と一致しない。GREEN: 両コピーが source と byte 一致し、既存 private path 除外・helper closure・plugin validation を維持する。 | F145.1 | cc:done [PR #20 / a7ef34d] |
 
 ---
 

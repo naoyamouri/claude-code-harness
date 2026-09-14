@@ -407,6 +407,22 @@ sync_named_children() {
   echo "$label merged to $dst_dir ($copied new, $updated updated, $preserved preserved, $skipped skipped)"
 }
 
+install_codex_helper() {
+  local plugin_dir="$1"
+  local target_root="$2"
+  local backup_root="$3"
+  local helper_name="$4"
+  local src="$plugin_dir/scripts/$helper_name"
+  local dst_dir="$target_root/bin"
+  local dst="$dst_dir/$helper_name"
+
+  mkdir -p "$dst_dir"
+  backup_path "$dst" "$backup_root"
+  cp "$src" "$dst"
+  chmod +x "$dst"
+  echo "Codex helper installed to $dst"
+}
+
 copy_project_agents() {
   local plugin_dir="$1"
   local backup_root="$2"
@@ -1627,6 +1643,9 @@ fi
 
 preflight_backup_destination "$backup_root"
 preflight_existing_config "$target_root" "$backup_root"
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+  [ -x "$PLUGIN_DIR/scripts/$helper" ] || fail "Codex helper source not found: $PLUGIN_DIR/scripts/$helper"
+done
 
 cleanup_legacy_skill_entries "$target_root/skills" "$backup_root"
 cleanup_legacy_skill_name_duplicates "$PLUGIN_DIR/codex/.codex/skills" "$target_root/skills" "$backup_root"
@@ -1634,6 +1653,9 @@ cleanup_removed_harness_skill_entries "$PLUGIN_DIR/codex/.codex/skills" "$target
 sync_named_children "$PLUGIN_DIR/codex/.codex/skills" "$target_root/skills" "Skills" "$backup_root"
 sync_named_children "$PLUGIN_DIR/codex/.codex/rules" "$target_root/rules" "Rules" "$backup_root"
 sync_named_children "$PLUGIN_DIR/codex/.codex/agents" "$target_root/agents" "Agents" "$backup_root"
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+  install_codex_helper "$PLUGIN_DIR" "$target_root" "$backup_root" "$helper"
+done
 
 if [ "$TARGET_MODE" = "project" ]; then
   copy_project_agents "$PLUGIN_DIR" "$backup_root"

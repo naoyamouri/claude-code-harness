@@ -6,11 +6,30 @@ Change history for claude-code-harness.
 
 ## [Unreleased]
 
+### Added
+
+- Retain the fork's reviewable daily synchronization workflow for
+  `Chachamaru127/claude-code-harness`, including explicit workflow-dispatch CI.
+- Retain the fork's PR review receipt, provenance, and fail-closed merge gate
+  across Claude, Codex, and OpenCode distributions.
+
 ### Changed
 
 - Resume the same read-only reviewer thread after `REQUEST_CHANGES` when the
   review target is unchanged. Start a fresh reviewer only for a material target
   change or unavailable session, and retain the replacement reason in repair-loop state.
+- Integrate upstream v5.15.0 while preserving fork-specific workflow,
+  distribution-freshness, and review-gate behavior. Historical fork task IDs
+  use the `F139`-`F147` namespace to avoid colliding with upstream phases.
+- Install the PR review, result writer, and PR closeout helpers in explicit
+  Codex setup flows and refresh Codex skills in an already-installed plugin cache.
+
+### Fixed
+
+- Keep plugin-cache self-refresh from copying a file or directory onto itself.
+- Keep a later `REQUEST_CHANGES` review from reusing an older approval receipt,
+  and allow the documented GitHub Free private-repository fallback only after
+  live PR/base/head and successful-CI checks pass.
 
 ## [5.15.0] - 2026-09-06
 

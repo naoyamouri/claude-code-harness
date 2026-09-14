@@ -149,6 +149,13 @@ assert_file "$SOURCE_SKILL_FILE"
 assert_file "$CODEX_ONE/config.toml"
 assert_file "$CODEX_ONE/agents/worker.toml"
 assert_file "$CODEX_ONE/agents/reviewer.toml"
+assert_file "$CODEX_ONE/bin/harness-pr-review-gate.sh"
+assert_file "$CODEX_ONE/bin/write-review-result.sh"
+assert_file "$CODEX_ONE/bin/harness-pr-closeout.sh"
+if [ ! -x "$CODEX_ONE/bin/harness-pr-review-gate.sh" ]; then
+  echo "expected executable PR review gate" >&2
+  exit 1
+fi
 assert_toml_valid "$CODEX_ONE/config.toml"
 grep -Fqx 'multi_agent = true' "$CODEX_ONE/config.toml" || {
   echo "fresh setup must enable features.multi_agent" >&2

@@ -5,6 +5,7 @@ name: smoke-install
 # users on at least one platform would receive a broken plugin.
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'go/**'

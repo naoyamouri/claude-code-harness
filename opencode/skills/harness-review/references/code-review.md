@@ -104,3 +104,54 @@ Severity 表 / 下記 Verdict の閾値ロジックはこの step で変更し�
 
 `REQUEST_CHANGES` の後は、修正後再レビューを必ず行う。
 同じ issue を 2 回連続で落とした場合は TeamAgent Debate を強制する。
+
+## Output Contract
+
+~~~markdown
+## {🟢 合格 (APPROVE) | 🔴 修正が必要 (REQUEST_CHANGES) | 🟡 判断が必要}
+
+{one-line conclusion}
+
+### 必須対応
+- {🔴 | 🟠} `file:line` - {issue}
+  - 理由: {evidence}
+  - 対応: {concrete action}
+
+### 改善提案
+- ...
+
+### 詳細
+
+Target: `{BASE_REF}..HEAD` or `{target}`
+Verification: {commands run}
+```json
+{
+  "schema_version": "review-result.v1",
+  "verdict": "APPROVE | REQUEST_CHANGES",
+  "decision_needed": {
+    "required": false,
+    "ask_tool": "AskUserQuestion"
+  },
+  "accepted_findings": [],
+  "rejected_findings": [],
+  "acceptance_bar": {
+    "critical_major_zero": true,
+    "spec_alignment": "pass | fail | not_applicable",
+    "plans_alignment": "pass | fail | not_applicable",
+    "regression_safety": "pass | fail | not_applicable",
+    "verification_evidence": "pass | fail | not_applicable"
+  },
+  "team_debate": {
+    "required": false,
+    "mode": "native | codex-companion | manual-pass | unavailable",
+    "team_agent_mode": "native | codex-companion | manual-pass | unavailable",
+    "agents": [],
+    "disagreements": []
+  },
+  "critical_issues": [],
+  "major_issues": [],
+  "observations": [],
+  "recommendations": []
+}
+```
+~~~

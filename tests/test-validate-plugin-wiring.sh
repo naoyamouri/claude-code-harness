@@ -26,6 +26,7 @@ REQUIRED_INVOCATIONS=(
   "tests/test-lsp-workflow-wiring.sh"
   "tests/test-test-wiring-auditor.sh"
   "tests/test-claude-upstream-integration.sh"
+  "tests/test-upstream-sync-workflow.sh"
   "tests/test-harness-review-governance.sh"
   "tests/test-phase-72-mirror-closeout.sh"
   "tests/test-release-preflight-host-smoke.sh"

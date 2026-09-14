@@ -21,7 +21,7 @@ if $ARGUMENTS == "":
 
 `↑この結果は Claude が要約します。Enter キーで次へ進むか、新規 prompt で別の指示を出してください。`
 
-これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。
+これは `<local-command-stdout>` 経由で text response として表示されると user が「止まった」と感じる UX 問題への明示的な instruction (patterns.md P35)。ただし `code --no-commit --report FILE` では stdout に P35 フッターを付けない。`review-result.v1` の JSON だけを stdout へ出し、人向け Markdown は `FILE` に保存する。
 host の最終回答は verdict、判断理由、確認した証拠、未検証点を返す。要約の予告だけで終了しない。
 
 ## Dispatcher Contract
@@ -49,6 +49,8 @@ commit / push / release は既定では行わない。
 | `/harness-review --security` | `security` | security 専用 review |
 | `/harness-review plan` | `plan` | `Plans.md` の計画 review |
 | `/harness-review scope` | `scope` | scope creep / 漏れ review |
+
+`code --base REF --no-commit` は `REF..HEAD` を固定対象とし、stdout には構造化 `review-result.v1` だけを返す。`--report FILE` がある場合、reviewer は人向け Markdown をそのファイルに保存する（保存・commit・push・merge は呼出元）。
 ## Mode Decision
 
 引数から実行 mode を決定し、必要な `references/` を選択ロードする。
@@ -267,57 +269,11 @@ If no language is configured, use English. Use Japanese only when
 instruction requests Japanese output.
 Machine-readable values stay English.
 
-Start with the result summary.
-
-~~~markdown
-## Review Result
-
-### {APPROVE | REQUEST_CHANGES | decision_needed} - {one-line conclusion}
-
-Target: `{BASE_REF}..HEAD` or `{target}`
-Verification: {commands run}
-
-Strengths:
-- ...
-
-Findings:
-- [severity] file:line - issue and evidence
-
-Next Actions:
-- ...
-
-Details:
-```json
-{
-  "schema_version": "review-result.v1",
-  "verdict": "APPROVE | REQUEST_CHANGES",
-  "decision_needed": {
-    "required": false,
-    "ask_tool": "AskUserQuestion"
-  },
-  "accepted_findings": [],
-  "rejected_findings": [],
-  "acceptance_bar": {
-    "critical_major_zero": true,
-    "spec_alignment": "pass | fail | not_applicable",
-    "plans_alignment": "pass | fail | not_applicable",
-    "regression_safety": "pass | fail | not_applicable",
-    "verification_evidence": "pass | fail | not_applicable"
-  },
-  "team_debate": {
-    "required": false,
-    "mode": "native | codex-companion | manual-pass | unavailable",
-    "team_agent_mode": "native | codex-companion | manual-pass | unavailable",
-    "agents": [],
-    "disagreements": []
-  },
-  "critical_issues": [],
-  "major_issues": [],
-  "observations": [],
-  "recommendations": []
-}
-```
-~~~
+Start the human report with the result summary. For Japanese, use `## 🟢 合格 (APPROVE)`,
+`## 🔴 修正が必要 (REQUEST_CHANGES)`, or `## 🟡 判断が必要`; list blocking items under
+`### 必須対応` with `理由:` and `対応:`, non-blocking items under `### 改善提案`, and evidence
+under `### 詳細`. The complete template is in `references/code-review.md#output-contract`.
+In `code --no-commit --report FILE`, save Markdown to `FILE` and emit only the `review-result.v1` JSON to stdout.
 
 ## Codex Environment
 

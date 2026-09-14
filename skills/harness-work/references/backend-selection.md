@@ -26,13 +26,13 @@ backend が `codex` または `cursor` の場合、**Lead は Worker agent (`cla
 
 | backend | 経路 |
 |---------|------|
-| `claude`（既定） | Lead → Worker (`claude-code-harness:worker` agent) → … → Lead review → cherry-pick |
-| `codex` | Lead → `codex-companion.sh task --write` → Lead review → cherry-pick |
-| `cursor` | Lead → `cursor-companion.sh task --write --workspace <isolated-wt>` → Lead review → cherry-pick |
+| `claude`（既定） | Lead → Worker (`claude-code-harness:worker` agent) → … → Lead review → topic-branch PR |
+| `codex` | Lead → `codex-companion.sh task --write` → Lead review → topic-branch PR |
+| `cursor` | Lead → `cursor-companion.sh task --write --workspace <isolated-wt>` → Lead review → topic-branch PR |
 
 非 claude backend で Worker を間に挟むと、Lead → Worker → companion → composer/codex と二段委譲になり、Worker の存在意義（agent 契約による self_review 5 件のゲート）が空回りする（非 claude では `worker-report.v1` も `self_review` も生成されないため）。Lead は Worker をスキップして companion を直接呼ぶ。
 
-非 claude backend の companion 呼び出しでも、Lead は先に専用 worktree を作り、companion stdout を `companion-result.v1` 相当の `{baseCommit, commit, worktreePath, branch, files_changed, summary}` に正規化してから既存の Lead review / cherry-pick 経路へ渡す。`REQUEST_CHANGES` 時は `SendMessage` を使わず、同じ worktree で `cursor-companion.sh` / `codex-companion.sh` を再実行し、`baseCommit..HEAD` を再レビューして range cherry-pick する。
+非 claude backend の companion 呼び出しでも、Lead は先に専用 worktree を作り、companion stdout を `companion-result.v1` 相当の `{baseCommit, commit, worktreePath, branch, files_changed, summary}` に正規化してから既存の Lead review / topic-branch PR 経路へ渡す。`REQUEST_CHANGES` 時は `SendMessage` を使わず、同じ worktree で `cursor-companion.sh` / `codex-companion.sh` を再実行し、`baseCommit..HEAD` を再レビューしてから branch を push する。
 
 ## 非 `claude` バックエンドの self_review ゲート
 
@@ -47,12 +47,12 @@ backend が `cursor` のとき、Lead は委託前に次の 1 行 banner を必�
 ⚠️ cursor backend: model=composer-2.5-fast / R01-R13 ガードレールは cursor-agent 内部に適用されない / 出力は Lead レビューまで untrusted
 ```
 
-cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lead が main へ cherry-pick する（cherry-pick 経路で R01-R13 が適用される）。
+cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lead が topic branch の PR を作る。default branch は formal review・required CI・GitHub merge の後だけ更新される。
 ガバナンス詳細は `.claude/rules/cursor-cli-only.md` を参照。
 
-## Lead の cherry-pick 前ゲート（contract grep を必須）
+## Lead の PR 作成前ゲート（contract grep を必須）
 
-非 claude backend (cursor / codex) の出力を main にとり込む前に、Lead は **目視 diff + contract grep の二段ゲート**を必ず通す。目視 diff だけで APPROVE しない。
+非 claude backend (cursor / codex) の出力を PR に出す前に、Lead は **目視 diff + contract grep の二段ゲート**を必ず通す。目視 diff だけで APPROVE しない。
 
 | ゲート | コマンド | 検知できるもの |
 |--------|----------|----------------|
@@ -61,7 +61,7 @@ cursor の write 委託は専用 `.git` を持つ worktree 内で実行し、Lea
 | contract grep | `bash scripts/ci/check-consistency.sh` | i18n / locale / mirror / capability matrix の固定文字列契約破壊 |
 | contract grep | `bash tests/validate-plugin.sh` | plugin 配布契約・hook 配線 |
 
-**全 PASS のときだけ cherry-pick**。1 件でも fail なら revert または composer に再委託（同一文字列契約を保つよう明示）。
+**全 PASS のときだけ PR を作成**。1 件でも fail なら worker branch で修正または composer に再委託する。
 
 理由: docs / README / locale / capability-matrix / spec.md には grep で監視される **固定文字列契約**がある（例: `README_ja.md` の `5動詞ワークフロー`）。composer は表面的な言語的重複を機械的に削減する傾向があり、目視 diff では「綺麗な dedup」に見えても固定句を破壊しうる。
 

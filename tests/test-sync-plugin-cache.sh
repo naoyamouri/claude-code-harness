@@ -31,6 +31,7 @@ MARKETPLACE_PLUGIN_JSON_FIXTURE="{\"name\": \"claude-code-harness\", \"version\"
 mkdir -p "${CACHE_DIR}" "${MARKETPLACE_DIR}/.claude-plugin"
 mkdir -p \
   "${CACHE_DIR}/codex/.codex/skills/x-article" \
+  "${CACHE_DIR}/codex/.codex/skills/harness-work" \
   "${CACHE_DIR}/skills/harness-release-internal" \
   "${CACHE_DIR}/docs/private" \
   "${MARKETPLACE_DIR}/docs/research"
@@ -47,6 +48,22 @@ printf 'stale\n' > "${CACHE_DIR}/docs/private/stale-note.md"
 printf 'tracked\n' > "${MARKETPLACE_DIR}/docs/research/tracked-note.md"
 printf '{"hooks":{"SessionStart":[{"hooks":[{"command":"\"${CLAUDE_PLUGIN_ROOT}/bin/harness\" hook session-start"}]}]}}' > "${MARKETPLACE_DIR}/.claude-plugin/hooks.json"
 
+# SessionStart can run from the versioned cache itself. That path must not
+# copy files or directories onto themselves (notably codex/).
+ACTIVE_BIN="${TMP_HOME}/active-bin"
+mkdir -p "${CACHE_DIR}/bin" "${CACHE_DIR}/scripts" "${CACHE_DIR}/.claude-plugin" "${ACTIVE_BIN}"
+cp "${ROOT_DIR}/bin/harness" "${CACHE_DIR}/bin/harness"
+cp "${ROOT_DIR}/scripts/sync-plugin-cache.sh" "${CACHE_DIR}/scripts/sync-plugin-cache.sh"
+cp "${ROOT_DIR}/scripts/harness-pr-review-gate.sh" "${CACHE_DIR}/scripts/harness-pr-review-gate.sh"
+cp "${ROOT_DIR}/.claude-plugin/plugin.json" "${CACHE_DIR}/.claude-plugin/plugin.json"
+cp "${ROOT_DIR}/VERSION" "${CACHE_DIR}/VERSION"
+cp "${ROOT_DIR}/codex/.codex/skills/harness-work/SKILL.md" "${CACHE_DIR}/codex/.codex/skills/harness-work/SKILL.md"
+chmod +x "${CACHE_DIR}/bin/harness"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "${ACTIVE_BIN}/harness"
+chmod +x "${ACTIVE_BIN}/harness"
+HOME="${TMP_HOME}" CLAUDE_PLUGIN_ROOT="${CACHE_DIR}" PATH="${ACTIVE_BIN}:$PATH" \
+  bash "${CACHE_DIR}/scripts/sync-plugin-cache.sh" >/dev/null 2>&1
+
 HOME="${TMP_HOME}" CLAUDE_PLUGIN_ROOT="${ROOT_DIR}" bash "${SYNC_SCRIPT}" >/dev/null 2>&1
 
 # 間違った CLAUDE_PLUGIN_ROOT が来ても、script path から実際の plugin root へ
@@ -59,6 +76,9 @@ required_cached_files=(
   "${CACHE_DIR}/scripts/lib/harness-mem-bridge.sh"
   "${CACHE_DIR}/scripts/codex-companion.sh"
   "${CACHE_DIR}/scripts/cursor-companion.sh"
+  "${CACHE_DIR}/scripts/harness-pr-review-gate.sh"
+  "${CACHE_DIR}/scripts/write-review-result.sh"
+  "${CACHE_DIR}/scripts/harness-pr-closeout.sh"
   "${CACHE_DIR}/scripts/model-routing.sh"
   "${CACHE_DIR}/scripts/resolve-impl-backend.sh"
   "${CACHE_DIR}/scripts/hook-handlers/memory-bridge.sh"
@@ -72,9 +92,13 @@ required_cached_files=(
   "${CACHE_DIR}/.claude-plugin/settings.json"
   "${CACHE_DIR}/agents/worker.md"
   "${CACHE_DIR}/agents/reviewer.md"
+  "${CACHE_DIR}/codex/.codex/skills/harness-work/SKILL.md"
   "${MARKETPLACE_DIR}/scripts/lib/harness-mem-bridge.sh"
   "${MARKETPLACE_DIR}/scripts/codex-companion.sh"
   "${MARKETPLACE_DIR}/scripts/cursor-companion.sh"
+  "${MARKETPLACE_DIR}/scripts/harness-pr-review-gate.sh"
+  "${MARKETPLACE_DIR}/scripts/write-review-result.sh"
+  "${MARKETPLACE_DIR}/scripts/harness-pr-closeout.sh"
   "${MARKETPLACE_DIR}/scripts/model-routing.sh"
   "${MARKETPLACE_DIR}/scripts/resolve-impl-backend.sh"
   "${MARKETPLACE_DIR}/scripts/hook-handlers/memory-bridge.sh"
@@ -86,14 +110,17 @@ required_cached_files=(
   "${MARKETPLACE_DIR}/hooks/hooks.json"
   "${MARKETPLACE_DIR}/.claude-plugin/hooks.json"
   "${MARKETPLACE_DIR}/.claude-plugin/settings.json"
+  "${MARKETPLACE_DIR}/codex/.codex/skills/harness-work/SKILL.md"
 )
 
 required_cached_dirs=(
   "${CACHE_DIR}/skills"
   "${CACHE_DIR}/output-styles"
   "${CACHE_DIR}/agents"
+  "${CACHE_DIR}/codex/.codex/skills"
   "${MARKETPLACE_DIR}/skills"
   "${MARKETPLACE_DIR}/output-styles"
+  "${MARKETPLACE_DIR}/codex/.codex/skills"
 )
 
 for file in "${required_cached_files[@]}"; do
@@ -101,6 +128,16 @@ for file in "${required_cached_files[@]}"; do
     echo "sync-plugin-cache did not populate required file: ${file}"
     exit 1
   fi
+done
+
+for rel_path in scripts/harness-pr-review-gate.sh scripts/write-review-result.sh scripts/harness-pr-closeout.sh; do
+  for target_root in "${CACHE_DIR}" "${MARKETPLACE_DIR}"; do
+    target="${target_root}/${rel_path}"
+    if [[ ! -x "${target}" ]] || ! cmp -s "${ROOT_DIR}/${rel_path}" "${target}"; then
+      echo "sync-plugin-cache did not restore current executable helper: ${target}"
+      exit 1
+    fi
+  done
 done
 
 for dir in "${required_cached_dirs[@]}"; do

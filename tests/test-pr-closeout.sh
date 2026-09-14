@@ -131,12 +131,13 @@ printf 'seed\n' >"${DETACHED_REPO}/README.md"
 git -C "${DETACHED_REPO}" add README.md
 git -C "${DETACHED_REPO}" commit -q -m "seed"
 git -C "${DETACHED_REPO}" checkout -q -b task/72.1.5
+git -C "${DETACHED_REPO}" remote add origin https://github.com/test-owner/test-repo.git
 
 PAYLOAD_C="${TMP_DIR}/payload-c.json"
 (
   cd "${DETACHED_REPO}"
   PATH="${MOCK_BIN_DIR}:${PATH}" bash "${CLOSEOUT}" build \
-    --base main \
+    --base origin/main \
     --head task/72.1.5 \
     --evidence "${EVIDENCE}" \
     --out "${PAYLOAD_C}"
@@ -152,7 +153,8 @@ set -e
 
 [ "${push_rc}" -eq 0 ] || fail "(c) push --yes should exit 0 on attached branch, got ${push_rc}"
 grep -Fq 'pr create' "${GH_CALLS}" || fail "(c) push --yes must call gh pr create"
-grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must pass --base"
+grep -Fq -- '--repo test-owner/test-repo' "${GH_CALLS}" || fail "(c) gh pr create must use origin repository"
+grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must normalize origin/ from --base"
 grep -Fq -- '--head task/72.1.5' "${GH_CALLS}" || fail "(c) gh pr create must pass --head"
 grep -Fq -- '--title' "${GH_CALLS}" || fail "(c) gh pr create must pass --title"
 grep -Fq -- '--body' "${GH_CALLS}" || fail "(c) gh pr create must pass --body"
@@ -213,6 +215,8 @@ grep -Fq 'acc-1' <<<"${body_text}" || fail "(f) body must include accepted findi
 grep -Fq 'rej-1' <<<"${body_text}" || fail "(f) body must include rejected finding id"
 grep -Fq 'Accepted findings' <<<"${body_text}" || fail "(f) body must sectionize accepted findings"
 grep -Fq 'Rejected findings' <<<"${body_text}" || fail "(f) body must sectionize rejected findings"
+grep -Fq $'Default dry-run prevents accidental gh side effects\n\n## Rejected findings' <<<"${body_text}" \
+  || fail "(f) body must separate finding sections with a blank line"
 
 # (g) harness-review path must not auto push / create PR
 review_hits="$(rg -n 'gh pr create|git push' "${PROJECT_ROOT}/skills/harness-review" 2>/dev/null || true)"

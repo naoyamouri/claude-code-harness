@@ -277,6 +277,13 @@ not by regenerating on the target. There is one version: a single git tag.
 Manifests and mirrors do not carry independently bumped versions, and there is no
 separate per-host package to release.
 
+An active host installation is current only when its selected installed version
+and declared runtime-helper closure match the released package. Freshness
+inspection is read-only: the active Claude installation is determined from the
+plugin manager registry when available, while historical cache directories are
+informational. Missing or unreadable registry metadata is `not_observed`, not
+evidence of a stale install. Updates and cache cleanup remain user-initiated.
+
 Rules:
 
 - The release unit is the `harness` binary plus `hosts.toml` and the embedded

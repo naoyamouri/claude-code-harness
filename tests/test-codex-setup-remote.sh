@@ -16,6 +16,7 @@ mkdir -p \
   "${FAKE_SOURCE}/codex/.codex/skills/breezing" \
   "${FAKE_SOURCE}/codex/.codex/rules" \
   "${FAKE_SOURCE}/codex/.codex/agents" \
+  "${FAKE_SOURCE}/scripts" \
   "${FAKE_BIN}" \
   "${CODEX_HOME_DIR}/agents"
 
@@ -32,6 +33,9 @@ cp "${ROOT_DIR}/codex/.codex/agents/worker.toml" \
 cp "${ROOT_DIR}/codex/.codex/agents/reviewer.toml" \
   "${FAKE_SOURCE}/codex/.codex/agents/reviewer.toml"
 printf '# fake AGENTS\n' > "${FAKE_SOURCE}/codex/AGENTS.md"
+for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+  cp "${ROOT_DIR}/scripts/${helper}" "${FAKE_SOURCE}/scripts/${helper}"
+done
 
 cat > "${FAKE_BIN}/git" <<'EOF'
 #!/usr/bin/env bash

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var taskIDRefRE = regexp.MustCompile(`\d+(?:\.\d+)*`)
+var taskIDRefRE = regexp.MustCompile(`[A-Za-z]*\d+(?:\.\d+)*`)
 
 // DependencyViolation reports a done task whose dependency is not closed.
 type DependencyViolation struct {

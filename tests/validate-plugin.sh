@@ -1479,6 +1479,28 @@ else
 fi
 
 echo ""
+echo "Fork workflow contracts"
+echo "-----------------------"
+
+if bash "$PLUGIN_ROOT/tests/test-upstream-sync-workflow.sh" >/dev/null 2>&1; then
+    pass_test "Chachamaru 本家の同期 PR workflow が配線されています"
+else
+    fail_test "Chachamaru 本家の同期 PR workflow に欠落があります"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-pr-review-gate.sh" >/dev/null 2>&1; then
+    pass_test "PR review receipt は APPROVE / base / HEAD を照合して agent merge を fail closed にします"
+else
+    fail_test "PR review gate contract failed — 'bash tests/test-pr-review-gate.sh' で詳細確認"
+fi
+
+if bash "$PLUGIN_ROOT/tests/test-pr-first-core-skill-contract.sh" >/dev/null 2>&1; then
+    pass_test "core skills and canonical references keep default-branch writes behind PR merge"
+else
+    fail_test "PR-first workflow contract failed — 'bash tests/test-pr-first-core-skill-contract.sh' で詳細確認"
+fi
+
+echo ""
 echo "=========================================="
 echo "テスト結果サマリー"
 echo "=========================================="

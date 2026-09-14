@@ -340,6 +340,22 @@ sync_named_children() {
     log_ok "$label merged to $dst_dir ($copied new, $updated updated, $preserved preserved, $skipped skipped)"
 }
 
+install_codex_helper() {
+    local source_root="$1"
+    local target_root="$2"
+    local backup_root="$3"
+    local helper_name="$4"
+    local src="$source_root/scripts/$helper_name"
+    local dst_dir="$target_root/bin"
+    local dst="$dst_dir/$helper_name"
+
+    mkdir -p "$dst_dir"
+    backup_path "$dst" "$backup_root"
+    cp "$src" "$dst"
+    chmod +x "$dst"
+    log_ok "Codex helper installed to $dst"
+}
+
 copy_project_agents() {
     local backup_root="$1"
     local src="$TEMP_DIR/harness/codex/AGENTS.md"
@@ -1664,6 +1680,7 @@ print_success() {
     echo "Created/updated:"
     echo "  $target_root/skills/  - Harness skills"
     echo "  $target_root/rules/   - Guardrails"
+    echo "  $target_root/bin/     - PR review and closeout helpers"
     echo "  $backup_root/ - Setup backups (outside skill scan path)"
     if [ "$TARGET_MODE" = "project" ]; then
         echo "  $PROJECT_DIR/AGENTS.md - Project instructions"
@@ -1701,6 +1718,13 @@ main() {
 
     preflight_backup_destination "$backup_root"
     preflight_existing_config "$target_root" "$backup_root"
+    local helper
+    for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+        [ -x "$TEMP_DIR/harness/scripts/$helper" ] || {
+            log_err "Codex helper source not found: $TEMP_DIR/harness/scripts/$helper"
+            exit 1
+        }
+    done
 
     cleanup_legacy_skill_entries "$target_root/skills" "$backup_root"
     cleanup_legacy_skill_name_duplicates "$TEMP_DIR/harness/codex/.codex/skills" "$target_root/skills" "$backup_root"
@@ -1708,6 +1732,9 @@ main() {
     sync_named_children "$TEMP_DIR/harness/codex/.codex/skills" "$target_root/skills" "Skills" "$backup_root"
     sync_named_children "$TEMP_DIR/harness/codex/.codex/rules" "$target_root/rules" "Rules" "$backup_root"
     sync_named_children "$TEMP_DIR/harness/codex/.codex/agents" "$target_root/agents" "Agents" "$backup_root"
+    for helper in harness-pr-review-gate.sh write-review-result.sh harness-pr-closeout.sh; do
+        install_codex_helper "$TEMP_DIR/harness" "$target_root" "$backup_root" "$helper"
+    done
 
     if [ "$TARGET_MODE" = "project" ]; then
         copy_project_agents "$backup_root"

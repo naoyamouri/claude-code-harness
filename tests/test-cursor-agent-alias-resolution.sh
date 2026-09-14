@@ -40,9 +40,11 @@ case "${TMP_DIR}" in
 esac
 
 MOCK_BIN_DIR="${TMP_DIR}/bin"
+TOOL_BIN_DIR="${TMP_DIR}/tools"
 ISOLATED_HOME="${TMP_DIR}/empty-home"
 WORKSPACE_DIR="${TMP_DIR}/ws"
-mkdir -p "${MOCK_BIN_DIR}" "${ISOLATED_HOME}" "${WORKSPACE_DIR}"
+mkdir -p "${MOCK_BIN_DIR}" "${TOOL_BIN_DIR}" "${ISOLATED_HOME}" "${WORKSPACE_DIR}"
+ln -s "$(command -v node)" "${TOOL_BIN_DIR}/node"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -55,9 +57,8 @@ reset_bin() {
 }
 
 # 隔離 PATH（本物の ~/.local/bin 等を一切含まない）でラッパーを叩くヘルパ。
-# /usr/local/bin は model-routing.sh が hosts/registry.json を読むのに使う node
-# 用に必要（/usr/local/bin に agent/cursor-agent が無いことは事前に確認済み）。
-ISOLATED_PATH="${MOCK_BIN_DIR}:/usr/local/bin:/usr/bin:/bin"
+# model-routing.sh 用の node だけを専用 directory に公開し、実 agent binary は除外する。
+ISOLATED_PATH="${MOCK_BIN_DIR}:${TOOL_BIN_DIR}:/usr/bin:/bin"
 
 run_wrapper_isolated() {
   PATH="${ISOLATED_PATH}" HOME="${ISOLATED_HOME}" bash "${WRAPPER}" "$@"

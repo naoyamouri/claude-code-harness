@@ -38,7 +38,7 @@ node "${HARNESS_PLUGIN_ROOT}/scripts/generate-sprint-contract.js" 32.1.1
 
 実際の委譲依頼には、contract の参照に加えて元の要求、目的と理由、担当範囲、制約、承認済み操作と元の指示を渡す。選択した plan、reviewer の補足条件、直前の advisor の助言を落とさない。contract の `approved` は検証条件の準備状態であり、元の指示にない操作の承認を作らない。
 
-**TDD 完了ゲート**: `[tdd:required]` タスクでは sprint contract に `tdd_red_log` または明示 `skip_tdd_reason` が無い限り完了扱いにしない（`cc:完了` 更新・cherry-pick・PR closeout すべて対象）。
+**TDD 完了ゲート**: `[tdd:required]` タスクでは sprint contract に `tdd_red_log` または明示 `skip_tdd_reason` が無い限り完了扱いにしない（topic-branch PR・GitHub merge・`cc:完了` marker PR すべて対象）。
 
 ## PR Closeout（review APPROVE 後）
 
@@ -55,5 +55,29 @@ bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-closeout.sh" push --payload .cla
 ```
 
 `harness-review` 経路からの自動 push / PR / merge は禁止（read-only boundary）。detached HEAD では `push` 前に branch 作成が必要。
+
+## PR 作成後の共通レビューゲート
+
+A lane の PR では、`gh pr create` の直後に PR 全体をレビューする。task 内レビューだけで merge しない。
+
+```bash
+PR_CONTEXT="$(bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" context)"
+PR_BASE_REF="$(jq -er '.base_ref' <<<"$PR_CONTEXT")"
+PR_BASE="$(jq -er '.base_oid' <<<"$PR_CONTEXT")"
+git fetch origin "$PR_BASE_REF"
+BASE_REF="$(git merge-base "origin/$PR_BASE_REF" HEAD)"
+harness-review code --base "$BASE_REF" --no-commit \
+  --report .claude/state/pr-review-report.md > .claude/state/pr-review-output.json
+bash "${HARNESS_PLUGIN_ROOT}/scripts/write-review-result.sh" \
+  .claude/state/pr-review-output.json "$(git rev-parse HEAD)" \
+  .claude/state/review-result.json --base-ref "$BASE_REF" \
+  --pr-base "$PR_BASE" --pr-base-ref "$PR_BASE_REF" \
+  --review-workflow harness-review --review-mode code \
+  --review-report .claude/state/pr-review-report.md
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" record --base "$BASE_REF"
+bash "${HARNESS_PLUGIN_ROOT}/scripts/harness-pr-review-gate.sh" merge --base "$BASE_REF"
+```
+
+`record` は origin の current PR、review base、local HEAD、review artifact の PR base と人向け report digest、live PR の base/head を照合する。同一 HEAD の後続 `REQUEST_CHANGES` は既存 receipt を無効化する。`merge` は receipt head を固定し、required checks が strict でない場合は fail closed にする。ただし GitHub Free private の既知 403 では、非 draft の `CLEAN` かつ `MERGEABLE` な PR と全 reported CI の `SUCCESS` を要求して live PR を再照合する。認証・通信エラー、base/head 不一致、CI 未完了・失敗、review 後の更新は拒否する。
 
 **Fast lane の軽量化境界**: `lane: fast` は full review を省略できるが、`not_observed != absent` の unknown data contract と focused checks（`runtime_validation` / `checks` の DoD 分解）は省かない。

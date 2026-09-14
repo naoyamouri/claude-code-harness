@@ -115,6 +115,41 @@ iteration limit do not change.
 
 PR closeout belongs to `harness-work`, not `harness-review`.
 
+Workers may commit only to their isolated topic branch. A Lead integrates the
+reviewed result into the current topic branch and opens or updates its PR;
+neither a worker nor a Lead cherry-picks to a default branch. The only default
+branch write is GitHub's PR merge after the current formal-review receipt,
+required CI, and any applicable preview or human acceptance have passed.
+After GitHub confirms the merge, `harness-sync` reconciles the ledger and one
+separate C-lane marker PR may write `cc:done`. Waiting on CI, preview, access,
+or a human decision is `cc:blocked` with an explicit resume condition, never
+`cc:done` or a success report.
+
+An agent merge resolves the current PR through `origin`, and must fail closed
+unless the review receipt head equals both local `HEAD` and GitHub's live PR
+head, its recorded `pr_base` equals GitHub's live `baseRefOid`, and its
+`pr_base_ref` equals the live `baseRefName`. The review artifact carries the
+same base name/SHA, so a base update between review and receipt recording also
+requires re-review. The merge command pins the reviewed head with `--repo` and
+`--match-head-commit`, and requires required status checks with `strict: true`
+on the live base branch. That GitHub-enforced setting rejects a merge when the
+base advances after the helper's final verification.
+
+Private repositories on GitHub Free cannot read that branch-protection endpoint:
+GitHub returns its documented 403 upgrade response. Only for that exact response,
+Harness instead rechecks the live PR base and head immediately before a
+`--match-head-commit` merge, requires a non-draft `CLEAN`/`MERGEABLE` PR and
+successful completion of every reported CI check, then verifies the result on
+GitHub. It does not require a separate owner approval comment. This is a
+reduced guarantee, not an equivalent: a base update can still race the merge.
+`strict: false`, authentication failures, and other API failures remain
+fail-closed.
+
+The reviewer report is a user-facing Markdown artifact, stored separately from
+the derived `review-result.v1` JSON used by the merge receipt. The report leads
+with a verdict, required actions with their reasons and concrete actions, then
+non-blocking suggestions; it is never reconstructed from the JSON projection.
+
 Release belongs to `harness-release`, not PR closeout.
 
 Do not merge these stages:

@@ -59,9 +59,9 @@ file when you need the full rationale.
 Plans.md に Depends カラムがある場合（v2 フォーマット）、依存グラフに従ってタスクを実行する:
 
 1. **Depends が `-` のタスク**を先に実行。独立して検証できる成果と担当範囲を割り当て、設定済みの同時実行上限内で並列 spawn 可能
-2. 各 Worker 完了後、Lead がレビュー→cherry-pick（`harness-work` Phase B 参照）
-3. 依存元タスクが main に cherry-pick されたら、そのタスクに依存していたタスクを次に実行
+2. 各 Worker 完了後、Lead がレビューし、現在の topic branch PR へ統合する（`harness-work` Phase B 参照）
+3. 依存元 task の PR merge receipt を確認してから、その task に依存していた task を次に実行
 4. 全タスクが完了するまで繰り返す
 
-各タスクの「Worker 完了→レビュー→cherry-pick」は逐次処理。並列化できるのは独立タスク（Depends が `-`）の Worker spawn 部分のみ。
+各タスクの「Worker 完了→レビュー→topic PR 統合」は逐次処理。default branch への反映は formal review・CI 後の GitHub merge だけである。並列化できるのは独立タスク（Depends が `-`）の Worker spawn 部分のみ。
 Lead は Worker 実行中に統合準備や根拠確認を進める。関連修正は同じ Worker に返し、独立 Reviewer は新しい文脈で起動する。

@@ -58,6 +58,9 @@ with tempfile.TemporaryDirectory(prefix="codex reviewer loader ") as tmp:
     (source / "codex/.codex/agents").mkdir()
     shutil.copy2(root / "codex/.codex/agents/reviewer.toml", source / "codex/.codex/agents/reviewer.toml")
     (source / "codex/AGENTS.md").write_text("# Setup fixture\n")
+    (source / "scripts").mkdir()
+    for helper in ("harness-pr-review-gate.sh", "write-review-result.sh", "harness-pr-closeout.sh"):
+        shutil.copy2(root / "scripts" / helper, source / "scripts" / helper)
     fake_bin = tmp / "bin"
     fake_bin.mkdir()
     fake_git = fake_bin / "git"
