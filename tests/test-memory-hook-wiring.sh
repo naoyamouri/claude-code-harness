@@ -25,76 +25,16 @@ for wrapper_file in "${required_wrapper_files[@]}"; do
   }
 done
 
+# Tokikata slim fork: harness-mem is uninstalled, so the memory hooks and the per-turn
+# language injection are intentionally unwired (see the slim commit). The wrapper files
+# above stay shipped; only their hooks.json registration is removed.
 for hooks_file in "${ROOT_DIR}/hooks/hooks.json" "${ROOT_DIR}/.claude-plugin/hooks.json"; do
-  # Matcher checks use strict pipe-token regex to avoid false positives on
-  # typos like "startup-only" or "startup_special". The pattern matches
-  # "startup" as a standalone token in pipe-separated matchers:
-  #   - "startup"              → matches (whole string)
-  #   - "startup|resume"       → matches (pipe-delimited token)
-  #   - "resume|startup"       → matches (pipe-delimited token, end)
-  #   - "startup-only"         → NO match (hyphen breaks boundary)
-  jq -e '.hooks.SessionStart[] | select(.matcher | test("(^|\\|)startup($|\\|)")) | .hooks[] | select(.command | contains("memory-bridge"))' "${hooks_file}" >/dev/null || {
-    echo "SessionStart startup is missing memory-bridge session-start in ${hooks_file}"
-    exit 1
-  }
-
-  jq -e '.hooks.SessionStart[] | select(.matcher | test("(^|\\|)resume($|\\|)")) | .hooks[] | select(.command | contains("memory-bridge"))' "${hooks_file}" >/dev/null || {
-    echo "SessionStart resume is missing memory-bridge session-start in ${hooks_file}"
-    exit 1
-  }
-
-  jq -e '.hooks.UserPromptSubmit[] | .hooks[] | select(.command? | strings | contains("memory-bridge"))' "${hooks_file}" >/dev/null || {
-    echo "UserPromptSubmit is missing memory-bridge user-prompt in ${hooks_file}"
-    exit 1
-  }
-
-  jq -e '.hooks.PostToolUse[] | .hooks[] | select(.command? | strings | contains("memory-bridge"))' "${hooks_file}" >/dev/null || {
-    echo "PostToolUse is missing memory-bridge post-tool-use in ${hooks_file}"
-    exit 1
-  }
-
-  jq -e '.hooks.Stop[] | .hooks[] | select(.command? | strings | contains("memory-bridge"))' "${hooks_file}" >/dev/null || {
-    echo "Stop is missing memory-bridge stop in ${hooks_file}"
-    exit 1
-  }
-
-  # --- XR-003 / Phase 49: shell 実装の resume-pack 注入 wiring 検証 ---
-  # SessionStart[startup|resume] に memory-session-start.sh が入っていること (DoD a の配線)
-  jq -e '.hooks.SessionStart[] | select(.matcher | test("(^|\\|)startup($|\\|)")) | .hooks[] | select(.command? | strings | contains("memory-session-start.sh"))' "${hooks_file}" >/dev/null || {
-    echo "SessionStart startup is missing memory-session-start.sh (Phase 49) in ${hooks_file}"
-    exit 1
-  }
-  jq -e '.hooks.SessionStart[] | select(.matcher | test("(^|\\|)resume($|\\|)")) | .hooks[] | select(.command? | strings | contains("memory-session-start.sh"))' "${hooks_file}" >/dev/null || {
-    echo "SessionStart resume is missing memory-session-start.sh (Phase 49) in ${hooks_file}"
-    exit 1
-  }
-
-  # UserPromptSubmit に userprompt-inject-policy.sh が入っていること (DoD a の配線)
-  jq -e '.hooks.UserPromptSubmit[] | .hooks[] | select(.command? | strings | contains("userprompt-inject-policy.sh"))' "${hooks_file}" >/dev/null || {
-    echo "UserPromptSubmit is missing userprompt-inject-policy.sh (Phase 49) in ${hooks_file}"
-    exit 1
-  }
-
-  # UserPromptSubmit での順序: memory-bridge → userprompt-inject-policy.sh
-  # 旧 Go inject-policy は shell 側と同じ additionalContext を出しうるため、
-  # UserPromptSubmit からは外して二重注入を防ぐ。
-  # `.command // ""` で null-safe にする: agent/http 型 hook (.command プロパティを持たない) が混ざっても
-  # 後続の `test(...)` が null に対してエラーにならないようにする。
-  order_check=$(jq -r '.hooks.UserPromptSubmit[] | select(.matcher=="*") | .hooks | map(.command // "") | map(
-    if test("hook memory-bridge") then "1:memory-bridge"
-    elif test("userprompt-inject-policy.sh") then "2:userprompt-inject-policy"
-    else empty end
-  ) | join(",")' "${hooks_file}")
-  [[ "${order_check}" == "1:memory-bridge,2:userprompt-inject-policy" ]] || {
-    echo "UserPromptSubmit hook order mismatch in ${hooks_file}: got '${order_check}'"
-    echo "expected order: memory-bridge → userprompt-inject-policy.sh"
-    exit 1
-  }
-
-  if jq -e '.hooks.UserPromptSubmit[] | .hooks[] | select(.command? | strings | contains("hook inject-policy"))' "${hooks_file}" >/dev/null; then
-    echo "UserPromptSubmit still wires hook inject-policy in ${hooks_file}; this can duplicate additionalContext"
-    exit 1
-  fi
+  for removed in memory-bridge memory-session-start.sh userprompt-inject-policy.sh "hook inject-policy"; do
+    if jq -e --arg removed "${removed}" '.. | objects | select(.command? | strings | contains($removed))' "${hooks_file}" >/dev/null; then
+      echo "slim fork must not wire ${removed} in ${hooks_file}"
+      exit 1
+    fi
+  done
 done
 
 # --- Issue #94 Item 4: agent/http 型 hook (command フィールドなし) を含んでも order_check が壊れないこと ---

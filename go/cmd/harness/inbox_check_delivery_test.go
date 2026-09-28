@@ -151,17 +151,14 @@ func TestClaudeHooksJSON_StopWiresLivemsgInboxCheck(t *testing.T) {
 		if err := json.Unmarshal(data, &doc); err != nil {
 			t.Fatalf("%s: JSON: %v", rel, err)
 		}
-		found := false
+		// Tokikata slim fork: the livemsg inbox check is intentionally unwired
+		// (native SendMessage/ListAgents cover messaging; see the slim commit).
 		for _, group := range doc.Hooks.Stop {
 			for _, h := range group.Hooks {
-				if strings.Contains(h.Command, "inbox check") && strings.Contains(h.Command, "HARNESS_LIVEMSG_TEAM") {
-					found = true
-					break
+				if strings.Contains(h.Command, "inbox check") {
+					t.Fatalf("%s: slim fork must not wire the livemsg inbox check on Stop", rel)
 				}
 			}
-		}
-		if !found {
-			t.Fatalf("%s: Stop hook must wire livemsg inbox check with env-resolvable team", rel)
 		}
 		if strings.Contains(string(data), "inbox monitor") {
 			t.Fatalf("%s: inbox monitor must not be wired by default (opt-in only)", rel)
