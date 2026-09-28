@@ -156,6 +156,7 @@ grep -Fq -- '--base main' "${GH_CALLS}" || fail "(c) gh pr create must pass --ba
 grep -Fq -- '--head task/72.1.5' "${GH_CALLS}" || fail "(c) gh pr create must pass --head"
 grep -Fq -- '--title' "${GH_CALLS}" || fail "(c) gh pr create must pass --title"
 grep -Fq -- '--body' "${GH_CALLS}" || fail "(c) gh pr create must pass --body"
+grep -Fq -- '--draft' "${GH_CALLS}" || fail "(c) gh pr create must pass --draft (CI runs the full suite only after ready)"
 
 # (d) push without --yes and non-tty stdin must exit 1
 make_recording_mock_gh
@@ -217,5 +218,71 @@ grep -Fq 'Rejected findings' <<<"${body_text}" || fail "(f) body must sectionize
 # (g) harness-review path must not auto push / create PR
 review_hits="$(rg -n 'gh pr create|git push' "${PROJECT_ROOT}/skills/harness-review" 2>/dev/null || true)"
 [ -z "${review_hits}" ] || fail "(g) harness-review must not reference gh pr create or git push:\n${review_hits}"
+
+# (h) ready: marks a draft PR ready and waits for the ready_for_review re-runs
+# Mock state: draft flag, the runs visible for the head SHA, and workflow files.
+READY_STATE="${TMP_DIR}/ready-state"
+make_ready_mock_gh() {
+  # $1 = runs appended by `gh pr ready` (JSON array of {id,path})
+  mkdir -p "${READY_STATE}"
+  printf '%s' "$1" >"${READY_STATE}/runs-after-ready.json"
+  cat >"${MOCK_GH}" <<MOCK
+#!/usr/bin/env bash
+echo "\$*" >> "${GH_CALLS}"
+S="${READY_STATE}"
+case "\$*" in
+  "pr view 7 --json isDraft,headRefOid")
+    printf '{"isDraft":%s,"headRefOid":"abc123"}' "\$(cat "\$S/draft")" ;;
+  "pr ready 7")
+    jq -s 'add' "\$S/runs.json" "\$S/runs-after-ready.json" >"\$S/runs.next" && mv "\$S/runs.next" "\$S/runs.json"
+    echo false >"\$S/draft" ;;
+  *"actions/runs?head_sha=abc123&event=pull_request"*)
+    jq '{workflow_runs: .}' "\$S/runs.json" ;;
+  *"contents/.github/workflows/"*)
+    f="\${*##*contents/}"; f="\${f%%\?*}"; cat "\$S/files/\$(basename "\$f")" ;;
+  *) echo "unexpected gh invocation: \$*" >&2; exit 1 ;;
+esac
+MOCK
+  chmod +x "${MOCK_GH}"
+}
+reset_ready_state() {
+  rm -rf "${READY_STATE}"; mkdir -p "${READY_STATE}/files"
+  echo "$1" >"${READY_STATE}/draft"
+  printf '[{"id":1,"path":".github/workflows/tests.yml"},{"id":2,"path":".github/workflows/lint.yml"}]' >"${READY_STATE}/runs.json"
+  printf 'on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n' >"${READY_STATE}/files/tests.yml"
+  printf 'on:\n  pull_request:\n' >"${READY_STATE}/files/lint.yml"
+  : >"${GH_CALLS}"
+}
+run_ready() {
+  HARNESS_READY_POLL_INTERVAL=0 PATH="${MOCK_BIN_DIR}:${PATH}" bash "${CLOSEOUT}" ready --pr 7 "$@"
+}
+
+# (h1) draft PR: calls gh pr ready and exits 0 once tests.yml has a new run
+reset_ready_state true
+make_ready_mock_gh '[{"id":3,"path":".github/workflows/tests.yml"}]'
+set +e; run_ready --timeout 5 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -eq 0 ] || fail "(h1) ready should exit 0 after the re-run appears, got ${rc}"
+grep -Fxq 'pr ready 7' "${GH_CALLS}" || fail "(h1) ready must call gh pr ready"
+
+# (h2) no re-run ever appears: must time out non-zero instead of trusting the draft-era green
+reset_ready_state true
+make_ready_mock_gh '[]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -ne 0 ] || fail "(h2) ready must fail when the ready_for_review run never registers"
+
+# (h3) no workflow reacts to ready_for_review: exit 0 without waiting
+reset_ready_state true
+printf 'on:\n  pull_request:\n' >"${READY_STATE}/files/tests.yml"
+make_ready_mock_gh '[]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -eq 0 ] || fail "(h3) ready must not wait when no workflow lists ready_for_review, got ${rc}"
+grep -Fxq 'pr ready 7' "${GH_CALLS}" || fail "(h3) ready must still call gh pr ready"
+
+# (h4) already non-draft: no gh pr ready
+reset_ready_state false
+make_ready_mock_gh '[]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -eq 0 ] || fail "(h4) ready on a non-draft PR should exit 0, got ${rc}"
+! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h4) ready must not call gh pr ready on a non-draft PR"
 
 echo "test-pr-closeout: ok"
