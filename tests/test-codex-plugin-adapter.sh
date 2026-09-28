@@ -50,7 +50,8 @@ assert(manifest.interface && manifest.interface.displayName === "Claude Code Har
 assert(Array.isArray(manifest.interface.defaultPrompt) && manifest.interface.defaultPrompt.length >= 2, "missing default prompts");
 assert(String(manifest.interface.longDescription || "").includes("Codex CLI compatibility route"), "manifest must not imply app support");
 assert(plugin && plugin.source === "./", "Claude marketplace source should remain repo root");
-assert(plugin.version === manifest.version, "marketplace and Codex manifest versions must match");
+// Tokikata fork: the Claude marketplace may carry a -tokikata.N suffix over the Codex manifest version.
+assert(plugin.version === manifest.version || new RegExp(`^${manifest.version.replace(/\./g, "\\.")}-tokikata\\.[0-9]+$`).test(plugin.version), "marketplace and Codex manifest versions must match");
 NODE
 
 assert_contains "$APP_PROOF" 'Codex app remains `candidate`'
