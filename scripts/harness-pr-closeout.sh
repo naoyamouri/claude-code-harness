@@ -30,7 +30,8 @@ Notes:
   - dry-run previews payload on stdout (no git/gh side effects)
   - push calls gh pr create --draft only after confirmation or --yes
   - ready marks a draft PR ready and waits until workflows that re-run on
-    ready_for_review register a new run for the head SHA (exit 1 on timeout)
+    ready_for_review complete a new run for the head SHA (exit 1 on timeout
+    or when a workflow file cannot be read; the PR then stays draft)
 USAGE
 }
 
@@ -346,9 +347,10 @@ cmd_push() {
 }
 
 # ready 化後、head SHA の draft 時代の run（緑でも focused のみ）を full gate と数えないよう、
-# ready_for_review で再起動する workflow の新しい run が登録されるまで待つ。
+# ready_for_review で再起動する workflow の新しい run が完了するまで待つ。登録だけでは
+# job の check がまだ無く、`gh pr checks` に古い SUCCESS だけが見える瞬間がある。
 cmd_ready() {
-  local pr="" timeout=180
+  local pr="" timeout=1800
   while [ $# -gt 0 ]; do
     case "$1" in
       --pr) pr="${2:-}"; shift 2 ;;
@@ -357,6 +359,7 @@ cmd_ready() {
     esac
   done
   [ -n "$pr" ] || { echo "ready requires --pr N" >&2; exit 2; }
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "ready --timeout must be whole seconds: $timeout" >&2; exit 2; }
   command -v gh >/dev/null 2>&1 || { echo "gh CLI is required for ready" >&2; exit 2; }
 
   local view is_draft sha
@@ -369,12 +372,16 @@ cmd_ready() {
   fi
 
   local runs_url="repos/{owner}/{repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=100"
-  local before expected="" path
-  before="$(gh api "$runs_url" | jq -c '[.workflow_runs[] | {id, path}]')"
+  local before expected="" path workflow
+  before="$(gh api "$runs_url" | jq -c '[.workflow_runs[] | {id, path}]')" \
+    || { echo "could not list runs for $sha; PR #$pr left as draft" >&2; exit 1; }
+  # 判定できない workflow を「再起動しない」と扱うと draft 時代の緑で merge されるため、
+  # 取得失敗は ready 化の前に止める（PR は draft のままなので再実行できる）。
   # ponytail: ready_for_review を文字列で探す。コメント内の一致は待ち過ぎて timeout で止まる側に倒れる。
   for path in $(jq -r '[.[].path] | unique[]' <<<"$before"); do
-    if gh api -H 'Accept: application/vnd.github.raw' \
-      "repos/{owner}/{repo}/contents/${path}?ref=${sha}" | grep -q 'ready_for_review'; then
+    workflow="$(gh api -H 'Accept: application/vnd.github.raw' "repos/{owner}/{repo}/contents/${path}?ref=${sha}")" \
+      || { echo "could not read $path at $sha; PR #$pr left as draft" >&2; exit 1; }
+    if [[ "$workflow" == *ready_for_review* ]]; then
       expected="$expected $path"
     fi
   done
@@ -391,17 +398,17 @@ cmd_ready() {
     pending=""
     for path in $expected; do
       if ! gh api "$runs_url" | jq -e --argjson before "$before" --arg path "$path" \
-        '[.workflow_runs[] | select(.path == $path) | .id] - [$before[].id] | length > 0' >/dev/null; then
+        '[.workflow_runs[] | select(.path == $path and .status == "completed") | .id] - [$before[].id] | length > 0' >/dev/null; then
         pending="$pending $path"
       fi
     done
     if [ -z "$pending" ]; then
-      echo "PR #$pr is ready; new runs registered for:$expected"
+      echo "PR #$pr is ready; ready_for_review runs completed for:$expected"
       return 0
     fi
     now="$(date +%s)"
     if [ $((now - start)) -ge "$timeout" ]; then
-      echo "PR #$pr is ready but no ready_for_review run registered within ${timeout}s for:$pending" >&2
+      echo "PR #$pr is ready but ready_for_review runs did not complete within ${timeout}s for:$pending" >&2
       exit 1
     fi
     sleep "$interval"

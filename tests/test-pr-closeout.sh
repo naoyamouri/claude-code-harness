@@ -239,7 +239,7 @@ case "\$*" in
   *"actions/runs?head_sha=abc123&event=pull_request"*)
     jq '{workflow_runs: .}' "\$S/runs.json" ;;
   *"contents/.github/workflows/"*)
-    f="\${*##*contents/}"; f="\${f%%\?*}"; cat "\$S/files/\$(basename "\$f")" ;;
+    f="\${*##*contents/}"; f="\${f%%\?*}"; cat "\$S/files/\$(basename "\$f")" 2>/dev/null || { echo "HTTP 502" >&2; exit 1; } ;;
   *) echo "unexpected gh invocation: \$*" >&2; exit 1 ;;
 esac
 MOCK
@@ -248,7 +248,7 @@ MOCK
 reset_ready_state() {
   rm -rf "${READY_STATE}"; mkdir -p "${READY_STATE}/files"
   echo "$1" >"${READY_STATE}/draft"
-  printf '[{"id":1,"path":".github/workflows/tests.yml"},{"id":2,"path":".github/workflows/lint.yml"}]' >"${READY_STATE}/runs.json"
+  printf '[{"id":1,"path":".github/workflows/tests.yml","status":"completed"},{"id":2,"path":".github/workflows/lint.yml","status":"completed"}]' >"${READY_STATE}/runs.json"
   printf 'on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n' >"${READY_STATE}/files/tests.yml"
   printf 'on:\n  pull_request:\n' >"${READY_STATE}/files/lint.yml"
   : >"${GH_CALLS}"
@@ -259,7 +259,7 @@ run_ready() {
 
 # (h1) draft PR: calls gh pr ready and exits 0 once tests.yml has a new run
 reset_ready_state true
-make_ready_mock_gh '[{"id":3,"path":".github/workflows/tests.yml"}]'
+make_ready_mock_gh '[{"id":3,"path":".github/workflows/tests.yml","status":"completed"}]'
 set +e; run_ready --timeout 5 >/dev/null 2>&1; rc=$?; set -e
 [ "${rc}" -eq 0 ] || fail "(h1) ready should exit 0 after the re-run appears, got ${rc}"
 grep -Fxq 'pr ready 7' "${GH_CALLS}" || fail "(h1) ready must call gh pr ready"
@@ -284,5 +284,28 @@ make_ready_mock_gh '[]'
 set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
 [ "${rc}" -eq 0 ] || fail "(h4) ready on a non-draft PR should exit 0, got ${rc}"
 ! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h4) ready must not call gh pr ready on a non-draft PR"
+
+# (h5) a workflow file cannot be fetched: fail before gh pr ready (stay draft, fail closed)
+reset_ready_state true
+rm "${READY_STATE}/files/lint.yml"
+make_ready_mock_gh '[{"id":3,"path":".github/workflows/tests.yml","status":"completed"}]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -ne 0 ] || fail "(h5) ready must fail when a workflow file cannot be fetched"
+! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h5) ready must not mark the PR ready when detection failed"
+
+# (h6) re-run registered but not completed: keep waiting (old SUCCESS checks are still visible)
+reset_ready_state true
+make_ready_mock_gh '[{"id":3,"path":".github/workflows/tests.yml","status":"in_progress"}]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -ne 0 ] || fail "(h6) ready must wait for the re-run to complete, not just register"
+
+# (h7) non-numeric --timeout is rejected instead of looping forever
+# (no workflow waits here, so a missing check returns 0 quickly instead of hanging the suite)
+reset_ready_state true
+printf 'on:\n  pull_request:\n' >"${READY_STATE}/files/tests.yml"
+make_ready_mock_gh '[]'
+set +e; run_ready --timeout abc >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -eq 2 ] || fail "(h7) non-numeric --timeout must exit 2, got ${rc}"
+! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h7) invalid --timeout must not call gh pr ready"
 
 echo "test-pr-closeout: ok"
