@@ -122,8 +122,7 @@ jobs:
             exit 1
           fi
           file_version=$(tr -d '[:space:]' < VERSION)
-          # Tokikata fork: plugin.json may carry a -tokikata.N suffix over the upstream VERSION.
-          if [ "$version" != "$file_version" ] && [[ ! "$version" =~ ^"$file_version"-tokikata\.[0-9]+$ ]]; then
+          if [ "$version" != "$file_version" ]; then
             echo "::error::VERSION ($file_version) and plugin.json version ($version) drift detected"
             exit 1
           fi

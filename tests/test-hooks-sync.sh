@@ -311,15 +311,21 @@ test_safety_hooks_remain_synchronous() {
 }
 
 # ==================================================
-# Test 10: Tokikata slim fork — Stop does not wire the livemsg inbox check or stop-evaluator
+# Test 10: Tokikata slim fork — hooks removed by the slim commit stay unwired
+# (stop-evaluator, livemsg inbox check, inbox-check, auto-broadcast, breezing-signal, agent hooks)
 # ==================================================
 test_stop_wires_livemsg_inbox_check() {
   local hooks_file
   for hooks_file in "$PROJECT_ROOT/hooks/hooks.json" "$PROJECT_ROOT/.claude-plugin/hooks.json"; do
     if jq -e '
-      .. | objects | select(.command? | strings | test("inbox check|hook stop-evaluator"))
+      .. | objects | select(.command? | strings
+        | test("inbox check|hook (stop-evaluator|inbox-check|auto-broadcast|breezing-signal)($|[^a-z-])"))
     ' "$hooks_file" >/dev/null 2>&1; then
-      echo "    Error: slim fork must not wire inbox check or stop-evaluator: ${hooks_file}"
+      echo "    Error: slim fork must not wire a removed hook: ${hooks_file}"
+      return 1
+    fi
+    if jq -e '.. | objects | select(.type? == "agent")' "$hooks_file" >/dev/null 2>&1; then
+      echo "    Error: slim fork must not wire agent hooks: ${hooks_file}"
       return 1
     fi
   done
@@ -363,7 +369,7 @@ run_test "CLAUDE_PLUGIN_ROOT 空時に /bin/harness へ落ちない" test_no_raw
 run_test "CLAUDE_PLUGIN_ROOT 未設定でも hook command が root 解決できる" test_hook_command_resolves_without_plugin_root
 run_test "identity 不一致の plugin root を拒否する" test_untrusted_plugin_root_is_rejected
 run_test "decision/safety hooks が同期実行される" test_safety_hooks_remain_synchronous
-run_test "slim fork: inbox check / stop-evaluator を配線しない" test_stop_wires_livemsg_inbox_check
+run_test "slim fork: 外した hook を配線しない" test_stop_wires_livemsg_inbox_check
 run_test "inbox monitor は既定 OFF (hooks 未配線)" test_stop_does_not_wire_inbox_monitor_by_default
 
 echo ""

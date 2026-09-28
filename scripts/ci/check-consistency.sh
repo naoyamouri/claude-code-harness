@@ -94,8 +94,7 @@ if [ -f "$VERSION_FILE" ] && [ -f "$PLUGIN_JSON" ]; then
   FILE_VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
   JSON_VERSION=$(grep '"version"' "$PLUGIN_JSON" | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
 
-  # Tokikata fork: plugin.json may carry a -tokikata.N suffix over the upstream VERSION.
-  if [ "$FILE_VERSION" != "$JSON_VERSION" ] && [[ ! "$JSON_VERSION" =~ ^"$FILE_VERSION"-tokikata\.[0-9]+$ ]]; then
+  if [ "$FILE_VERSION" != "$JSON_VERSION" ]; then
     echo "  ❌ バージョン不一致: VERSION=$FILE_VERSION, plugin.json=$JSON_VERSION"
     ERRORS=$((ERRORS + 1))
   else
