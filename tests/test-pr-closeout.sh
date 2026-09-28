@@ -237,6 +237,7 @@ case "\$*" in
     jq -s 'add' "\$S/runs.json" "\$S/runs-after-ready.json" >"\$S/runs.next" && mv "\$S/runs.next" "\$S/runs.json"
     echo false >"\$S/draft" ;;
   *"actions/runs?head_sha=abc123&event=pull_request"*)
+    [ -f "\$S/runs.json" ] || { echo "HTTP 502" >&2; exit 1; }
     jq '{workflow_runs: .}' "\$S/runs.json" ;;
   *"contents/.github/workflows/"*)
     f="\${*##*contents/}"; f="\${f%%\?*}"; cat "\$S/files/\$(basename "\$f")" 2>/dev/null || { echo "HTTP 502" >&2; exit 1; } ;;
@@ -307,5 +308,13 @@ make_ready_mock_gh '[]'
 set +e; run_ready --timeout abc >/dev/null 2>&1; rc=$?; set -e
 [ "${rc}" -eq 2 ] || fail "(h7) non-numeric --timeout must exit 2, got ${rc}"
 ! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h7) invalid --timeout must not call gh pr ready"
+
+# (h8) the run listing fails: fail before gh pr ready instead of treating it as "no runs"
+reset_ready_state true
+rm "${READY_STATE}/runs.json"
+make_ready_mock_gh '[]'
+set +e; run_ready --timeout 1 >/dev/null 2>&1; rc=$?; set -e
+[ "${rc}" -ne 0 ] || fail "(h8) ready must fail when the run listing cannot be read"
+! grep -Fq 'pr ready' "${GH_CALLS}" || fail "(h8) ready must not mark the PR ready when the run listing failed"
 
 echo "test-pr-closeout: ok"
