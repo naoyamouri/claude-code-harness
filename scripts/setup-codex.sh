@@ -76,14 +76,19 @@ check_requirements() {
     log_ok "All requirements met"
 }
 
-clone_harness() {
-    # 取得元が上流 main のままなので、本物の ~/.codex には入れない（tokikata の checkout に替えるまで）。
-    local real_codex_home
-    real_codex_home="$(eval echo "~$(id -un)")/.codex"
-    if [ "$TARGET_MODE" = "user" ] && [ "$(cd "$CODEX_HOME_DIR" 2>/dev/null && pwd -P)" = "$(cd "$real_codex_home" 2>/dev/null && pwd -P)" ]; then
-        log_err "Disabled for $real_codex_home: HARNESS_REPO still points to upstream main"
+# 取得元が上流 main のままなので、実ユーザーの ~/.codex には入れない（tokikata の checkout に替えるまで）。
+# 未作成の path や symlink も解決できるよう python の realpath と passwd の home を使う。
+refuse_real_codex_home() {
+    local target real
+    target="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1")" || { log_err "Cannot resolve target: $1"; exit 1; }
+    real="$(python3 -c 'import os,pwd; print(os.path.realpath(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".codex")))')" || { log_err "Cannot resolve the real ~/.codex"; exit 1; }
+    if [ -z "$target" ] || [ -z "$real" ] || [ "$target" = "$real" ]; then
+        log_err "Disabled for $real: HARNESS_REPO still points to upstream main (use a temporary CODEX_HOME to test)"
         exit 1
     fi
+}
+
+clone_harness() {
     log_info "Downloading Harness..."
     git clone --depth 1 --branch "$HARNESS_BRANCH" "$HARNESS_REPO" "$TEMP_DIR/harness" 2>/dev/null || {
         log_err "Failed to clone Harness repository"
@@ -1699,6 +1704,7 @@ main() {
     echo ""
 
     check_requirements
+    refuse_real_codex_home "$(resolve_target_root)"
     clone_harness
 
     local target_root
