@@ -73,6 +73,10 @@ check_requirements() {
         log_err "git is required but not installed"
         exit 1
     fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_err "python3 is required but not installed"
+        exit 1
+    fi
     log_ok "All requirements met"
 }
 
@@ -82,7 +86,9 @@ refuse_real_codex_home() {
     local target real
     target="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1")" || { log_err "Cannot resolve target: $1"; exit 1; }
     real="$(python3 -c 'import os,pwd; print(os.path.realpath(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".codex")))')" || { log_err "Cannot resolve the real ~/.codex"; exit 1; }
-    if [ -z "$target" ] || [ -z "$real" ] || [ "$target" = "$real" ]; then
+    # macOS の大文字小文字を区別しない FS でも同じ場所なら止める
+    if [ -z "$target" ] || [ -z "$real" ] || [ "$target" = "$real" ] \
+        || python3 -c 'import os,sys; sys.exit(0 if os.path.exists(sys.argv[1]) and os.path.exists(sys.argv[2]) and os.path.samefile(sys.argv[1], sys.argv[2]) else 1)' "$target" "$real"; then
         log_err "Disabled for $real: HARNESS_REPO still points to upstream main (use a temporary CODEX_HOME to test)"
         exit 1
     fi

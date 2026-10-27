@@ -22,11 +22,14 @@ fail() {
 run() {
   local dir="$1"
   shift
-  (cd "$dir" && PATH="$TMP/bin:$PATH" "$@" 2>&1) || true
+  local out code=0
+  out="$(cd "$dir" && PATH="$TMP/bin:$PATH" "$@" 2>&1)" || code=$?
+  printf '%s\nexit=%s' "$out" "$code"
 }
 
 expect_blocked() {
   case "$2" in
+    *"Disabled for"*"exit=0") fail "$1 printed the block message but exited 0" ;;
     *"Disabled for"*) echo "PASS: $1" ;;
     *) fail "$1 was not blocked: $2" ;;
   esac
@@ -47,4 +50,7 @@ expect_blocked "project mode with cwd at the real home" "$(run "$REAL_HOME" bash
 expect_blocked "symlink to the real ~/.codex" "$(run "$TMP" env CODEX_HOME="$TMP/link" bash "$SETUP" --user)"
 expect_blocked "HOME overridden" "$(run "$TMP" env HOME="$TMP" CODEX_HOME="$REAL_HOME/.codex" bash "$SETUP" --user)"
 expect_allowed "missing temporary CODEX_HOME" "$(run "$TMP" env CODEX_HOME="$TMP/new/.codex" bash "$SETUP" --user)"
+if [ -d "$REAL_HOME/.codex" ] && [ -e "$REAL_HOME/.CODEX" ]; then
+  expect_blocked "case-insensitive spelling of ~/.codex" "$(run "$TMP" env CODEX_HOME="$REAL_HOME/.CODEX" bash "$SETUP" --user)"
+fi
 expect_allowed "project mode in a temporary dir" "$(run "$TMP" bash "$SETUP" --project)"
