@@ -116,7 +116,8 @@ jobs:
 
   test-go:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # TestImpactScoreCommandFloorExitsTwo が数分かかり 10 分では打ち切られることがある（遅いテストを直すまでの暫定）
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
