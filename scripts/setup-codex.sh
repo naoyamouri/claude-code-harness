@@ -77,6 +77,13 @@ check_requirements() {
 }
 
 clone_harness() {
+    # 取得元が上流 main のままなので、本物の ~/.codex には入れない（tokikata の checkout に替えるまで）。
+    local real_codex_home
+    real_codex_home="$(eval echo "~$(id -un)")/.codex"
+    if [ "$TARGET_MODE" = "user" ] && [ "$(cd "$CODEX_HOME_DIR" 2>/dev/null && pwd -P)" = "$(cd "$real_codex_home" 2>/dev/null && pwd -P)" ]; then
+        log_err "Disabled for $real_codex_home: HARNESS_REPO still points to upstream main"
+        exit 1
+    fi
     log_info "Downloading Harness..."
     git clone --depth 1 --branch "$HARNESS_BRANCH" "$HARNESS_REPO" "$TEMP_DIR/harness" 2>/dev/null || {
         log_err "Failed to clone Harness repository"
