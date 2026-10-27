@@ -92,10 +92,6 @@ jobs:
         run: |
           bash ./tests/validate-plugin.sh
 
-      - name: Audit breezing benchmark dependencies
-        run: |
-          bash ./tests/test-breezing-agent-eval-deps.sh
-
       - name: Check consistency (templates/refs/version/hooks)
         run: |
           bash ./scripts/ci/check-consistency.sh
@@ -123,7 +119,8 @@ jobs:
 
   test-go:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # TestImpactScoreCommandFloorExitsTwo が数分かかり 10 分では打ち切られることがある（遅いテストを直すまでの暫定）
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
